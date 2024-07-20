@@ -15,7 +15,7 @@ def print_csv(file_path, separator):
 def main():
 	parser = argparse.ArgumentParser(description='Print a CSV file.')
 	parser.add_argument('file_path', type=str, help='Path to the CSV file')
-	parser.add_argument('-s', '--separator', type=str, default=';', help='Separator used in the CSV file (default: ;)')
+	parser.add_argument('-s', '--separator', type=str, default=',', help='Separator used in the CSV file (default: ;)')
     
 	args = parser.parse_args()
     
