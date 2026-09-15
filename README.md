@@ -1,55 +1,33 @@
 # utils
 
-A collection of small, focused utility scripts organized by purpose.
+A collection of small, focused utility scripts organized by purpose. Utilities
+may target different platforms and use different languages; each category keeps
+its detailed documentation close to its scripts.
 
 ## Repository structure
 
 ```text
 scripts/
-└── system/    System administration and maintenance utilities
+├── filesystem/    Cross-platform filesystem utilities
+└── system/        System administration and maintenance utilities
 ```
 
-New scripts should be placed in a purpose-based directory under `scripts/` and
-named after the tool or platform they target when that dependency matters.
+## Available utilities
 
-## Available scripts
+| Utility | Purpose | Platforms |
+| --- | --- | --- |
+| [`create-link-collection.py`](scripts/filesystem/README.md) | Build a flat collection of relative links from a `GROUP/ITEM` hierarchy | Linux, Windows |
+| [`update-apt.sh`](scripts/system/README.md) | Update packages on a Debian-based system | Linux |
 
-### `scripts/system/update-apt.sh`
+## Conventions
 
-Updates a Debian-based system using `apt-get`. The script refreshes package
-lists, upgrades installed packages, removes packages that are no longer needed,
-and cleans the local package cache.
-
-Requirements:
-
-- Bash
-- A Debian-based Linux distribution with `apt-get`
-- Root privileges
-
-Run interactively:
-
-```bash
-sudo ./scripts/system/update-apt.sh
-```
-
-Automatically confirm package upgrades and removals:
-
-```bash
-sudo ./scripts/system/update-apt.sh --yes
-```
-
-Show command-line help without making system changes:
-
-```bash
-./scripts/system/update-apt.sh --help
-```
-
-> [!CAUTION]
-> This script changes installed system packages. Review pending changes before
-> confirming them, and use `--yes` only when unattended confirmation is intended.
-
-The script stops on the first failed command and prints its success message only
-after every maintenance step completes.
+- Utilities live in a purpose-based directory under `scripts/`.
+- Names identify a platform or tool when that dependency matters.
+- Category READMEs contain usage and platform-specific guidance.
+- Specifications and tests are colocated with utilities that have non-trivial
+  behavior.
+- Utilities should avoid third-party runtime dependencies unless they provide a
+  clear benefit.
 
 ## License
 
