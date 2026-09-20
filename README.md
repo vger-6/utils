@@ -8,15 +8,17 @@ its detailed documentation close to its scripts.
 
 ```text
 scripts/
-├── filesystem/    Cross-platform filesystem utilities
-└── system/        System administration and maintenance utilities
+├── filesystem/
+│   ├── create-link-collection/    Relative-link collection generator
+│   └── directory-gallery/         Static directory gallery (planned)
+└── system/                         System administration utilities
 ```
 
 ## Available utilities
 
 | Utility | Purpose | Platforms |
 | --- | --- | --- |
-| [`create-link-collection.py`](scripts/filesystem/README.md) | Build a flat collection of relative links from a `GROUP/ITEM` hierarchy | Linux, Windows |
+| [`create-link-collection.py`](scripts/filesystem/create-link-collection/README.md) | Build a flat collection of relative links from a `GROUP/ITEM` hierarchy | Linux, Windows |
 | [`update-apt.sh`](scripts/system/README.md) | Update packages on a Debian-based system | Linux |
 
 ## Conventions
