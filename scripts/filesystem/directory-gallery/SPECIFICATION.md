@@ -1,95 +1,144 @@
 # Directory Gallery specification
 
-Status: implemented for version 0.1.0
+Status: implemented for version 0.2.0
 
 ## Source model
 
-- The tool is domain-neutral.
-- The input hierarchy is exactly `INPUT/CREATOR/PROJECT`.
-- Only real, visible directories at the creator and project levels are scanned.
+- The input hierarchy is `INPUT/CREATOR/PROJECT`.
+- Every visible, real immediate child directory of the input is a creator.
+- A creator is included even when it has no projects, artwork, README, or
+  supported media.
+- Every visible, real immediate child directory of a creator is a project except
+  the exact lowercase reserved name `meta`.
 - Symbolic-link and dot-prefixed directories are ignored and never followed.
-- Files and directories beneath a project do not affect discovery.
 - Creator and project display names are their directory names.
-- A creator with no eligible projects is omitted.
 - The source hierarchy is never modified.
 
-## Artwork
+## Reserved creator content
 
-- Creator artwork is selected directly from the creator directory.
-- Project artwork is selected directly from the project directory.
-- Accepted creator names, in priority order, are `portrait.jpg`,
+- `CREATOR/meta` is never a project and never appears in the project overview.
+- Allowed files directly in a creator are scanned without entering projects.
+- `meta` is scanned recursively without a depth limit.
+- Media directly in `meta` merges with direct creator media of the same type.
+- A directory below `meta` creates a separate row identified by its path
+  relative to `meta`.
+- `meta/README.md` is not rendered.
+
+## Role artwork
+
+- Creator artwork is selected only directly from the creator directory.
+- Accepted portrait names, in priority order, are `portrait.jpg`,
   `portrait.jpeg`, and `portrait.png`.
-- Accepted project names, in priority order, are `cover.jpg`, `cover.jpeg`, and
-  `cover.png`.
-- Matching is exact and case-sensitive.
-- When multiple accepted files exist, the highest-priority file is used and a
-  notice is included in the generated catalog.
-- Missing or unreadable images use an HTML/CSS placeholder.
-- Image dimensions are not validated. Thumbnails preserve aspect ratio and fit
-  within a 512 by 512 pixel boundary.
-- Thumbnails are JPEG files generated with Pillow.
+- Project artwork is first selected directly from the project directory using
+  `cover.jpg`, `cover.jpeg`, and `cover.png` in that order.
+- When a direct cover exists, nested directories are not searched for covers.
+- When no direct cover exists, visible real project subdirectories are searched
+  breadth-first: shallowest depth first, alphabetical relative path within a
+  depth, then JPG, JPEG, PNG within each directory.
+- During recursive fallback, the first candidate wins and every discovered
+  cover candidate is reserved from media rows.
+- Multiple candidates considered by a selection produce a catalog notice.
+- Missing or unreadable role artwork uses an HTML/CSS placeholder.
+- Role matching is exact and case-sensitive.
 
-## Command line
+## Media discovery
+
+- Project media is scanned recursively without a depth limit.
+- Hidden files, hidden directories, symbolic-link files, and symbolic-link
+  directories are ignored.
+- Extension classification is case-insensitive.
+- Allowed images are JPG, JPEG, PNG, WebP, GIF, and AVIF.
+- The only allowed document format is PDF.
+- Allowed video formats are MP4, M4V, WebM, OGV, MOV, and MKV.
+- Allowed audio formats are MP3, M4A, AAC, OGG, OGA, Opus, WAV, and FLAC.
+- Unsupported files are absent from generated pages.
+- Media is grouped into homogeneous rows; types are never mixed in a row.
+- Rows are ordered images, PDFs, videos, and audio. Within a type, root media
+  comes first and subdirectory rows follow in alphabetical path order.
+- Items within a row are ordered alphabetically by filename.
+- Animated image originals remain animated in the lightbox; generated JPEG
+  thumbnails may contain only the first frame.
+
+## Video posters
+
+- A video poster is an adjacent file using the video stem and one of
+  `.poster.jpg`, `.poster.jpeg`, or `.poster.png`, in that order.
+- A matched poster is omitted from image rows.
+- A video without a poster uses a generic tile.
+- Project covers are never used as video posters.
+- Audio and video are not transcoded; playback depends on browser codec support.
+
+## README rendering
+
+- Only exact, direct `README.md` files on creators and projects are rendered.
+- Markdown uses CommonMark with raw HTML disabled.
+- HTTP, HTTPS, and mail links remain active.
+- Relative links are enabled only when they remain within the creator/project
+  boundary, resolve to a regular file, and target an allowed media extension.
+- Relative images additionally must target an allowed image extension.
+- Invalid or disallowed relative links are disabled.
+- README text is embedded at generation time and does not require browser-side
+  filesystem access.
+
+## Generated interface
+
+- The interface has a dark theme only and no external runtime dependencies.
+- `index.html` is a searchable creator overview grid.
+- `projects.html` is a searchable global project overview grid.
+- Overview ordering is deterministic and alphabetical; there are no sorting
+  controls.
+- Creator cards contain portrait, name, and project count.
+- Project cards contain cover, project title, and creator name.
+- Creator detail pages contain portrait, name, README, projects, and creator
+  media. Projects are always the first content row when present.
+- Project detail pages contain cover, title, creator, README, and project media.
+- Content rows scroll horizontally, expose left/right controls only when they
+  overflow, and retain native touch and trackpad scrolling.
+- Images, PDFs, videos, and audio open in a shared accessible lightbox.
+- Image navigation stays within the selected row and loads the original file.
+- PDFs use cached first-page thumbnails and an embedded browser PDF viewer.
+- Videos use an HTML video player and stop when the lightbox closes.
+- Audio uses one HTML audio player plus a playlist for the selected row and
+  automatically advances to the next track.
+- Every lightbox supplies an `Open original` fallback.
+- No directory tree, generic file listing, or direct directory link is shown.
+
+## Command line and exclusions
 
 - `INPUT_FOLDER` and `OUTPUT_FOLDER` are required positional arguments.
-- `--exclude PATTERN` is optional and repeatable.
-- `--title TEXT` overrides the input-directory name in the page heading.
+- `--exclude PATTERN` is optional and repeatable and applies only to projects.
+- A pattern without `/` matches project names.
+- A pattern with `/` has one creator and one project component.
+- Matching is case-sensitive; `*`, `?`, and `fnmatch` character classes are
+  supported inside a component and never cross `/`.
+- Backslashes, `**`, empty patterns, empty components, and more than two
+  components are rejected.
+- `--title TEXT` overrides the catalog title.
 - `--version` reports the program version.
-- Options may not be abbreviated.
-- Invalid command syntax exits with status `2`.
-- User and filesystem errors exit with status `1`.
-- An interruption exits with status `130`.
+- Argument syntax errors exit with status 2, user/filesystem errors with status
+  1, and interruption with status 130.
 
-## Exclusions
+## Preview cache
 
-- Patterns are case-sensitive on every platform.
-- A pattern without `/` matches project names only.
-- A pattern with `/` contains one creator pattern and one project pattern.
-- `*`, `?`, and Python `fnmatch` character classes are supported inside each
-  component.
-- Wildcards never cross the `/` separator.
-- Backslashes, `**`, empty patterns, empty components, and patterns with more
-  than two components are rejected.
-- A project matching any supplied pattern is excluded.
+- Image thumbnails and video-poster thumbnails are JPEG files bounded by 512
+  by 512 pixels while preserving source aspect ratio.
+- PDF previews render the first page and use the same bound.
+- A cache record includes the resolved source path, preview type, size, and
+  nanosecond modification time.
+- An unchanged record with an existing generated file is reused.
+- Changed sources are regenerated; stale manifest-owned previews are pruned.
 
 ## Output safety
 
-- Input and output are resolved before generation.
-- Input and output must be disjoint directory trees.
+- Input and output are resolved before generation and must be disjoint trees.
 - The output must not be a symbolic link.
-- A missing output and its parents are created.
-- An empty output is accepted.
-- A non-empty output is accepted only when it contains a valid, compatible
-  `.directory-gallery-manifest.json` as a regular file.
-- The generator writes `index.html`, files under `assets/`, thumbnails under
-  `thumbnails/`, and its manifest.
-- Text files and the manifest are replaced atomically.
-- Only stale thumbnail filenames recorded by a previous valid manifest and
-  matching the generator's strict hashed-name format are removed.
+- A missing output and its parents are created; an empty output is accepted.
+- A non-empty output requires a valid compatible manifest.
+- Generated text files are replaced atomically.
+- The manifest records overview pages, hashed creator/project pages, assets, and
+  previews.
+- Stale generated pages are removed only when recorded by the previous manifest
+  and matching a strict generator-owned path pattern.
+- Stale previews are removed only when recorded by the previous manifest and
+  matching a strict hashed JPEG filename.
 - Unrelated output files are never removed.
-
-## Cache
-
-- A source image maps to a stable filename derived from its resolved path.
-- The manifest records the source size and nanosecond modification time.
-- A thumbnail is reused when its record and generated file are unchanged.
-- Changed images are regenerated.
-- Removed or superseded artwork causes its previously recorded thumbnail to be
-  pruned on the next successful run.
-- An invalid or incompatible manifest causes generation to stop before the
-  existing output is modified.
-
-## Static interface
-
-- The generated interface has a dark theme only.
-- Creators are stacked vertically.
-- Projects are displayed horizontally and wrap responsively.
-- Creator names and portraits link to creator directories.
-- Project titles and covers link to project directories.
-- No source document or media file is linked directly.
-- Links are relative when the host platform permits and otherwise use absolute
-  file URIs.
-- The interface provides creator/project search, alphabetical navigation,
-  visible counts, placeholders, notices, and lazy-loaded images.
-- The output uses plain HTML, CSS, and JavaScript with no runtime server or
-  external network resources.

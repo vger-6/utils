@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 
+MEDIA_KINDS = ("image", "pdf", "video", "audio")
+
+
 @dataclass(frozen=True)
 class CatalogWarning:
     code: str
@@ -14,10 +17,27 @@ class CatalogWarning:
 
 
 @dataclass(frozen=True)
+class MediaItem:
+    name: str
+    path: Path
+    kind: str
+    poster: Optional[Path] = None
+
+
+@dataclass(frozen=True)
+class MediaGroup:
+    kind: str
+    directory: Optional[Path]
+    items: Tuple[MediaItem, ...]
+
+
+@dataclass(frozen=True)
 class Project:
     name: str
     path: Path
     cover: Optional[Path]
+    readme: Optional[Path]
+    media: Tuple[MediaGroup, ...]
 
 
 @dataclass(frozen=True)
@@ -25,7 +45,9 @@ class Creator:
     name: str
     path: Path
     portrait: Optional[Path]
+    readme: Optional[Path]
     projects: Tuple[Project, ...]
+    media: Tuple[MediaGroup, ...]
 
 
 @dataclass(frozen=True)

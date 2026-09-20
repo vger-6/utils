@@ -19,7 +19,7 @@ scripts/
 | Utility | Purpose | Platforms |
 | --- | --- | --- |
 | [`create-link-collection.py`](scripts/filesystem/create-link-collection/README.md) | Build a flat collection of relative links from a `GROUP/ITEM` hierarchy | Linux, Windows |
-| [`directory-gallery`](scripts/filesystem/directory-gallery/README.md) | Build a dark static gallery from a `CREATOR/PROJECT` hierarchy | Linux, Windows |
+| [`directory-gallery`](scripts/filesystem/directory-gallery/README.md) | Build a dark, multi-page media catalog from a `CREATOR/PROJECT` hierarchy | Linux, Windows |
 | [`update-apt.sh`](scripts/system/README.md) | Update packages on a Debian-based system | Linux |
 
 ## Conventions

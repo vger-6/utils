@@ -23,8 +23,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             "--exclude is repeatable. Patterns use '/' between creator and "
-            "project on every platform; examples: --exclude meta, "
-            "--exclude '*/Drafts', --exclude 'Creator/*'."
+            "project on every platform; examples: --exclude Drafts, "
+            "--exclude 'Creator/Archive', --exclude 'Creator/*'. "
+            "The exact creator child directory 'meta' is reserved and is "
+            "never treated as a project."
         ),
         allow_abbrev=False,
     )
