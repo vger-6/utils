@@ -248,43 +248,74 @@ def _readme(directory: Path) -> Optional[Path]:
     return candidate if _visible_real_file(candidate) else None
 
 
+def creator_paths(root: Path) -> List[Path]:
+    """Return eligible creator directories in deterministic order."""
+
+    return _directories(root)
+
+
+def project_paths(creator: Path, exclusions: Sequence[str]) -> List[Path]:
+    """Return eligible project directories for one creator."""
+
+    return [
+        path
+        for path in _directories(creator)
+        if path.name != CREATOR_CONTENT_DIRECTORY
+        and not matches_exclusion(creator.name, path.name, exclusions)
+    ]
+
+
+def scan_project(
+    creator_name: str,
+    project_path: Path,
+    warnings: List[CatalogWarning],
+) -> Project:
+    """Scan one project and keep only that project's media in memory."""
+
+    subject = f"{creator_name} / {project_path.name}"
+    cover, cover_files = _select_project_cover(project_path, subject, warnings)
+    return Project(
+        name=project_path.name,
+        path=project_path,
+        cover=cover,
+        readme=_readme(project_path),
+        media=_project_media(project_path, cover_files),
+    )
+
+
+def scan_creator(
+    creator_path: Path,
+    warnings: List[CatalogWarning],
+    projects: Sequence[Project] = (),
+) -> Creator:
+    """Scan creator-level metadata and media without entering projects."""
+
+    portrait_files = set(_role_candidates(creator_path, "portrait"))
+    portrait = _select_direct_artwork(
+        creator_path, "portrait", creator_path.name, warnings
+    )
+    return Creator(
+        name=creator_path.name,
+        path=creator_path,
+        portrait=portrait,
+        readme=_readme(creator_path),
+        projects=tuple(projects),
+        media=_creator_media(creator_path, portrait_files),
+    )
+
+
 def scan_catalog(root: Path, exclusions: Sequence[str]) -> Catalog:
+    """Build an in-memory catalog for small callers and focused tests."""
+
     warnings: List[CatalogWarning] = []
     creators: List[Creator] = []
-
-    for creator_path in _directories(root):
-        projects: List[Project] = []
-        for project_path in _directories(creator_path):
-            if project_path.name == CREATOR_CONTENT_DIRECTORY:
-                continue
-            if matches_exclusion(creator_path.name, project_path.name, exclusions):
-                continue
-
-            subject = f"{creator_path.name} / {project_path.name}"
-            cover, cover_files = _select_project_cover(project_path, subject, warnings)
-            projects.append(
-                Project(
-                    name=project_path.name,
-                    path=project_path,
-                    cover=cover,
-                    readme=_readme(project_path),
-                    media=_project_media(project_path, cover_files),
-                )
-            )
-
-        portrait_files = set(_role_candidates(creator_path, "portrait"))
-        portrait = _select_direct_artwork(
-            creator_path, "portrait", creator_path.name, warnings
-        )
+    for creator_path in creator_paths(root):
+        projects = [
+            scan_project(creator_path.name, project_path, warnings)
+            for project_path in project_paths(creator_path, exclusions)
+        ]
         creators.append(
-            Creator(
-                name=creator_path.name,
-                path=creator_path,
-                portrait=portrait,
-                readme=_readme(creator_path),
-                projects=tuple(projects),
-                media=_creator_media(creator_path, portrait_files),
-            )
+            scan_creator(creator_path, warnings, projects)
         )
 
     return Catalog(root=root, creators=tuple(creators), warnings=tuple(warnings))

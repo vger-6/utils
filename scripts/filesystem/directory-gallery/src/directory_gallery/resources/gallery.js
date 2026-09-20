@@ -1,133 +1,215 @@
 (() => {
   "use strict";
 
-  const search = document.querySelector("#catalog-search");
+  const parseData = (element) => {
+    if (!element) return [];
+    try {
+      const value = JSON.parse(element.textContent || "[]");
+      return Array.isArray(value) ? value : [];
+    } catch (_error) {
+      return [];
+    }
+  };
+
+  const artwork = (item, frameClass) => {
+    const frame = document.createElement("span");
+    frame.className = frameClass;
+    if (item.image) {
+      const image = document.createElement("img");
+      image.src = item.image;
+      image.alt = "";
+      image.loading = "lazy";
+      image.decoding = "async";
+      frame.append(image);
+    } else {
+      const placeholder = document.createElement("span");
+      placeholder.className = "image-placeholder media-placeholder";
+      placeholder.ariaHidden = "true";
+      const label = document.createElement("span");
+      label.textContent = item.placeholder || "?";
+      placeholder.append(label);
+      frame.append(placeholder);
+    }
+    return frame;
+  };
+
   const overview = document.querySelector("[data-overview-grid]");
+  const overviewData = parseData(document.querySelector("#overview-data"));
+  const search = document.querySelector("#catalog-search");
   const visibleItems = document.querySelector("#visible-items");
   const visibleLabel = document.querySelector("#visible-label");
   const noResults = document.querySelector("#no-results");
+  const pagination = document.querySelector("[data-pagination]");
+  const pagePrevious = document.querySelector("[data-page-previous]");
+  const pageNext = document.querySelector("[data-page-next]");
+  const pageStatus = document.querySelector("[data-page-status]");
 
-  if (search && overview) {
-    const cards = [...overview.querySelectorAll("[data-search-card]")];
-    const singular = document.body.classList.contains("projects-overview")
-      ? "project"
-      : "creator";
+  if (overview && search && pagination && pagePrevious && pageNext && pageStatus) {
+    const kind = overview.dataset.cardKind || "creator";
+    const singular = kind === "project" ? "project" : "creator";
+    const batchSize = 120;
+    let initial = "";
+    let filtered = overviewData;
+    let currentPage = 0;
+    let searchTimer;
 
-    const filter = () => {
+    const createOverviewCard = (item) => {
+      const card = document.createElement("a");
+      card.className = `overview-card ${kind}-overview-card`;
+      card.href = item.href;
+      const frameClass =
+        kind === "creator"
+          ? "overview-artwork portrait-frame"
+          : "project-artwork cover-frame";
+      card.append(artwork(item, frameClass));
+
+      const copy = document.createElement("span");
+      copy.className = "overview-copy";
+      const title = document.createElement("span");
+      title.className = "overview-title";
+      title.textContent = item.title;
+      const meta = document.createElement("span");
+      meta.className = "overview-meta";
+      meta.textContent = item.meta;
+      copy.append(title, meta);
+      card.append(copy);
+      return card;
+    };
+
+    const renderPage = () => {
+      overview.replaceChildren();
+      const fragment = document.createDocumentFragment();
+      const pageCount = Math.max(1, Math.ceil(filtered.length / batchSize));
+      currentPage = Math.min(currentPage, pageCount - 1);
+      const start = currentPage * batchSize;
+      const limit = Math.min(filtered.length, start + batchSize);
+      for (let index = start; index < limit; index += 1) {
+        fragment.append(createOverviewCard(filtered[index]));
+      }
+      overview.append(fragment);
+      pagination.hidden = pageCount <= 1;
+      pagePrevious.disabled = currentPage === 0;
+      pageNext.disabled = currentPage >= pageCount - 1;
+      pageStatus.textContent = `Page ${currentPage + 1} of ${pageCount}`;
+    };
+
+    const applyFilter = () => {
       const query = search.value.trim().toLocaleLowerCase();
-      let count = 0;
-      cards.forEach((card) => {
-        const matches = (card.dataset.searchText || "").includes(query);
-        card.hidden = !matches;
-        if (matches) count += 1;
+      filtered = overviewData.filter(
+        (item) =>
+          (!initial || item.initial === initial) &&
+          (!query || (item.search || "").includes(query)),
+      );
+      currentPage = 0;
+      renderPage();
+      if (visibleItems) visibleItems.textContent = String(filtered.length);
+      if (visibleLabel) {
+        visibleLabel.textContent = filtered.length === 1 ? singular : `${singular}s`;
+      }
+      if (noResults) noResults.hidden = filtered.length !== 0;
+    };
+
+    search.addEventListener("input", () => {
+      window.clearTimeout(searchTimer);
+      searchTimer = window.setTimeout(applyFilter, 100);
+    });
+    document.querySelectorAll("[data-initial]").forEach((button) => {
+      button.addEventListener("click", () => {
+        initial = button.dataset.initial || "";
+        document.querySelectorAll("[data-initial]").forEach((candidate) => {
+          candidate.classList.toggle("current", candidate === button);
+        });
+        applyFilter();
       });
-      if (visibleItems) visibleItems.textContent = String(count);
-      if (visibleLabel) visibleLabel.textContent = count === 1 ? singular : `${singular}s`;
-      if (noResults) noResults.hidden = count !== 0;
-    };
-
-    search.addEventListener("input", filter);
-    filter();
+    });
+    pagePrevious.addEventListener("click", () => {
+      currentPage -= 1;
+      renderPage();
+      overview.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    pageNext.addEventListener("click", () => {
+      currentPage += 1;
+      renderPage();
+      overview.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    applyFilter();
   }
-
-  document.querySelectorAll(".content-row").forEach((row) => {
-    const track = row.querySelector("[data-rail-track]");
-    const previous = row.querySelector("[data-rail-previous]");
-    const next = row.querySelector("[data-rail-next]");
-    if (!track || !previous || !next) return;
-
-    const update = () => {
-      const maximum = Math.max(0, track.scrollWidth - track.clientWidth);
-      previous.disabled = track.scrollLeft <= 2;
-      next.disabled = track.scrollLeft >= maximum - 2;
-      row.classList.toggle("is-scrollable", maximum > 2);
-    };
-    const move = (direction) => {
-      track.scrollBy({ left: direction * track.clientWidth * 0.82, behavior: "smooth" });
-    };
-
-    previous.addEventListener("click", () => move(-1));
-    next.addEventListener("click", () => move(1));
-    track.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update, { passive: true });
-    update();
-  });
 
   const lightbox = document.querySelector("#media-lightbox");
   const viewer = document.querySelector("#lightbox-viewer");
   const playlist = document.querySelector("#audio-playlist");
-  const title = document.querySelector("#lightbox-title");
+  const lightboxTitle = document.querySelector("#lightbox-title");
   const original = document.querySelector("#lightbox-original");
-  const previous = document.querySelector("[data-lightbox-previous]");
-  const next = document.querySelector("[data-lightbox-next]");
+  const lightboxPrevious = document.querySelector("[data-lightbox-previous]");
+  const lightboxNext = document.querySelector("[data-lightbox-next]");
   const closeButtons = document.querySelectorAll("[data-lightbox-close]");
-  let items = [];
+  let activeItems = [];
   let activeIndex = 0;
   let trigger = null;
 
-  if (!lightbox || !viewer || !playlist || !title || !original || !previous || !next) {
-    return;
-  }
-
   const stopMedia = () => {
-    viewer.querySelectorAll("audio, video").forEach((media) => {
+    viewer?.querySelectorAll("audio, video").forEach((media) => {
       media.pause();
       media.removeAttribute("src");
       media.load();
     });
   };
 
-  const groupItems = (group) =>
-    [...document.querySelectorAll("[data-media-group]")].filter(
-      (item) => item.dataset.mediaGroup === group,
-    );
-
   const renderPlaylist = () => {
+    if (!playlist) return;
     playlist.replaceChildren();
-    items.forEach((item, index) => {
+    activeItems.forEach((item, index) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = item.dataset.mediaTitle || "Audio";
+      button.textContent = item.title || "Audio";
       button.className = index === activeIndex ? "current" : "";
-      button.addEventListener("click", () => show(index, true));
+      button.addEventListener("click", () => showMedia(index, true));
       playlist.append(button);
     });
   };
 
-  const show = (index, autoplay = false) => {
+  const showMedia = (index, autoplay = false) => {
+    if (
+      !viewer ||
+      !playlist ||
+      !lightboxTitle ||
+      !original ||
+      !lightboxPrevious ||
+      !lightboxNext ||
+      activeItems.length === 0
+    ) {
+      return;
+    }
     stopMedia();
-    activeIndex = (index + items.length) % items.length;
-    const item = items[activeIndex];
-    const kind = item.dataset.mediaKind;
-    const source = item.dataset.mediaSrc || "";
-    const itemTitle = item.dataset.mediaTitle || "Media";
-    title.textContent = itemTitle;
-    original.href = source;
+    activeIndex = (index + activeItems.length) % activeItems.length;
+    const item = activeItems[activeIndex];
+    lightboxTitle.textContent = item.title || "Media";
+    original.href = item.src || "";
     viewer.replaceChildren();
-    playlist.hidden = kind !== "audio";
+    playlist.hidden = item.kind !== "audio";
 
     let media;
-    if (kind === "image") {
+    if (item.kind === "image") {
       media = document.createElement("img");
-      media.src = source;
-      media.alt = itemTitle;
-    } else if (kind === "pdf") {
+      media.src = item.src;
+      media.alt = item.title || "";
+    } else if (item.kind === "pdf") {
       media = document.createElement("iframe");
-      media.src = source;
-      media.title = itemTitle;
-    } else if (kind === "video") {
+      media.src = item.src;
+      media.title = item.title || "PDF";
+    } else if (item.kind === "video") {
       media = document.createElement("video");
-      media.src = source;
+      media.src = item.src;
       media.controls = true;
       media.preload = "metadata";
-      if (item.dataset.poster) media.poster = item.dataset.poster;
-    } else if (kind === "audio") {
+      if (item.poster) media.poster = item.poster;
+    } else if (item.kind === "audio") {
       media = document.createElement("audio");
-      media.src = source;
+      media.src = item.src;
       media.controls = true;
       media.preload = "metadata";
       media.addEventListener("ended", () => {
-        if (activeIndex < items.length - 1) show(activeIndex + 1, true);
+        if (activeIndex < activeItems.length - 1) showMedia(activeIndex + 1, true);
       });
       renderPlaylist();
     }
@@ -136,21 +218,23 @@
       viewer.append(media);
       if (autoplay && "play" in media) media.play().catch(() => {});
     }
-    previous.disabled = items.length < 2;
-    next.disabled = items.length < 2;
+    lightboxPrevious.disabled = activeItems.length < 2;
+    lightboxNext.disabled = activeItems.length < 2;
   };
 
-  const open = (item) => {
-    trigger = item;
-    items = groupItems(item.dataset.mediaGroup || "");
-    activeIndex = Math.max(0, items.indexOf(item));
+  const openLightbox = (items, index, button) => {
+    if (!lightbox) return;
+    activeItems = items;
+    activeIndex = index;
+    trigger = button;
     lightbox.hidden = false;
     document.body.classList.add("lightbox-open");
-    show(activeIndex, item.dataset.mediaKind === "audio");
+    showMedia(index, items[index]?.kind === "audio");
     lightbox.querySelector("[data-lightbox-close]")?.focus();
   };
 
-  const close = () => {
+  const closeLightbox = () => {
+    if (!lightbox || !viewer || !playlist) return;
     stopMedia();
     lightbox.hidden = true;
     document.body.classList.remove("lightbox-open");
@@ -159,16 +243,100 @@
     trigger?.focus();
   };
 
-  document.querySelectorAll("[data-media-kind]").forEach((item) => {
-    item.addEventListener("click", () => open(item));
+  const createRailCard = (item, items, index) => {
+    if (item.kind === "project") {
+      const card = document.createElement("a");
+      card.className = "project-card";
+      card.href = item.href;
+      card.append(artwork(item, "project-artwork cover-frame"));
+      const copy = document.createElement("span");
+      copy.className = "overview-copy";
+      const title = document.createElement("span");
+      title.className = "overview-title";
+      title.textContent = item.title;
+      copy.append(title);
+      card.append(copy);
+      return card;
+    }
+
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = `media-card ${item.kind}-card`;
+    card.append(artwork(item, "media-artwork"));
+    const title = document.createElement("span");
+    title.className = "media-title";
+    title.textContent = item.title;
+    card.append(title);
+    card.addEventListener("click", () => openLightbox(items, index, card));
+    return card;
+  };
+
+  document.querySelectorAll(".content-row").forEach((row) => {
+    const track = row.querySelector("[data-rail-track]");
+    const canvas = row.querySelector("[data-rail-canvas]");
+    const data = parseData(row.querySelector("[data-rail-data]"));
+    const previous = row.querySelector("[data-rail-previous]");
+    const next = row.querySelector("[data-rail-next]");
+    if (!track || !canvas || !previous || !next) return;
+    const rendered = new Map();
+
+    const dimensions = () => {
+      const styles = getComputedStyle(track);
+      return {
+        width: Number.parseFloat(styles.getPropertyValue("--rail-card-width")) || 180,
+        gap: Number.parseFloat(styles.getPropertyValue("--rail-gap")) || 16,
+      };
+    };
+
+    const update = () => {
+      const { width, gap } = dimensions();
+      const step = width + gap;
+      canvas.style.width = `${Math.max(0, data.length * step - gap)}px`;
+      const start = Math.max(0, Math.floor(track.scrollLeft / step) - 5);
+      const end = Math.min(
+        data.length,
+        Math.ceil((track.scrollLeft + track.clientWidth) / step) + 5,
+      );
+
+      rendered.forEach((card, index) => {
+        if (index < start || index >= end) {
+          card.remove();
+          rendered.delete(index);
+        }
+      });
+      for (let index = start; index < end; index += 1) {
+        if (rendered.has(index)) continue;
+        const card = createRailCard(data[index], data, index);
+        card.classList.add("virtual-card");
+        card.style.left = `${index * step}px`;
+        card.style.width = `${width}px`;
+        canvas.append(card);
+        rendered.set(index, card);
+      }
+
+      const maximum = Math.max(0, track.scrollWidth - track.clientWidth);
+      previous.disabled = track.scrollLeft <= 2;
+      next.disabled = track.scrollLeft >= maximum - 2;
+      row.classList.toggle("is-scrollable", maximum > 2);
+    };
+
+    const move = (direction) => {
+      track.scrollBy({ left: direction * track.clientWidth * 0.82, behavior: "smooth" });
+    };
+    previous.addEventListener("click", () => move(-1));
+    next.addEventListener("click", () => move(1));
+    track.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update, { passive: true });
+    update();
   });
-  previous.addEventListener("click", () => show(activeIndex - 1, true));
-  next.addEventListener("click", () => show(activeIndex + 1, true));
-  closeButtons.forEach((button) => button.addEventListener("click", close));
+
+  lightboxPrevious?.addEventListener("click", () => showMedia(activeIndex - 1, true));
+  lightboxNext?.addEventListener("click", () => showMedia(activeIndex + 1, true));
+  closeButtons.forEach((button) => button.addEventListener("click", closeLightbox));
   document.addEventListener("keydown", (event) => {
-    if (lightbox.hidden) return;
-    if (event.key === "Escape") close();
-    if (event.key === "ArrowLeft") show(activeIndex - 1, true);
-    if (event.key === "ArrowRight") show(activeIndex + 1, true);
+    if (!lightbox || lightbox.hidden) return;
+    if (event.key === "Escape") closeLightbox();
+    if (event.key === "ArrowLeft") showMedia(activeIndex - 1, true);
+    if (event.key === "ArrowRight") showMedia(activeIndex + 1, true);
   });
 })();

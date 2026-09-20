@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import sys
 from typing import Optional, Sequence
 
@@ -11,7 +12,6 @@ from .errors import UserError
 from .output import prepare_output, resolve_paths
 from .patterns import validate_exclusions
 from .renderer import build_site
-from .scanner import scan_catalog
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="TEXT",
         help="page title; defaults to the input directory name",
     )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="suppress progress reports while generating",
+    )
     parser.add_argument("--version", action="version", version=__version__)
     return parser
 
@@ -51,14 +56,23 @@ def build_parser() -> argparse.ArgumentParser:
 def run(arguments: argparse.Namespace) -> int:
     validate_exclusions(arguments.exclude)
     input_root, output = resolve_paths(arguments.input, arguments.output)
-    catalog = scan_catalog(input_root, arguments.exclude)
     prepare_output(output)
     default_title = input_root.name or str(input_root)
-    result = build_site(catalog, output, arguments.title or default_title)
+    result = build_site(
+        input_root,
+        output,
+        arguments.title or default_title,
+        arguments.exclude,
+        quiet=arguments.quiet,
+    )
 
     print(
         f"Generated {result.creator_count} creator(s) and "
         f"{result.project_count} project(s): {result.index}"
+    )
+    print(
+        f"Media: {result.media_count}; previews: "
+        f"{result.previews_generated} generated, {result.previews_reused} reused"
     )
     if result.warning_count:
         print(f"Catalog notices: {result.warning_count}")
@@ -74,6 +88,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
     except OSError as error:
         print(f"directory-gallery: filesystem error: {error}", file=sys.stderr)
+        return 1
+    except sqlite3.Error as error:
+        print(f"directory-gallery: cache database error: {error}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         print("directory-gallery: interrupted", file=sys.stderr)

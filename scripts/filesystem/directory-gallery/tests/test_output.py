@@ -5,7 +5,12 @@ import unittest
 from pathlib import Path
 
 from directory_gallery.errors import UserError
-from directory_gallery.output import MANIFEST_NAME, prepare_output, resolve_paths
+from directory_gallery.output import (
+    DATABASE_NAME,
+    MANIFEST_NAME,
+    prepare_output,
+    resolve_paths,
+)
 
 
 class OutputTests(unittest.TestCase):
@@ -49,6 +54,46 @@ class OutputTests(unittest.TestCase):
                 encoding="utf-8",
             )
             prepare_output(managed)
+
+            current = root / "current"
+            current.mkdir()
+            (current / MANIFEST_NAME).write_text(
+                '{"format": 2, "generator": "directory-gallery"}',
+                encoding="utf-8",
+            )
+            (current / DATABASE_NAME).touch()
+            prepare_output(current)
+
+    def test_current_manifest_requires_its_cache_database(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "output"
+            output.mkdir()
+            (output / MANIFEST_NAME).write_text(
+                '{"format": 2, "generator": "directory-gallery"}',
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(UserError):
+                prepare_output(output)
+
+    def test_current_cache_database_must_not_be_a_symbolic_link(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            output = root / "output"
+            output.mkdir()
+            (output / MANIFEST_NAME).write_text(
+                '{"format": 2, "generator": "directory-gallery"}',
+                encoding="utf-8",
+            )
+            target = root / "database.sqlite3"
+            target.touch()
+            try:
+                (output / DATABASE_NAME).symlink_to(target)
+            except (OSError, NotImplementedError):
+                return
+
+            with self.assertRaises(UserError):
+                prepare_output(output)
 
     def test_invalid_manifest_and_symbolic_link_output_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

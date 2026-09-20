@@ -1,20 +1,25 @@
-"""Render a multi-page static media catalog."""
+"""Stream catalog discovery into scalable static pages."""
 
 from __future__ import annotations
 
 import hashlib
 import html
+import json
 import os
+import sys
+import time
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 from string import Template
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 from urllib.parse import quote
 
-from .models import Catalog, CatalogWarning, Creator, MediaGroup, MediaItem, Project
+from .models import CatalogWarning, Creator, MediaGroup, MediaItem, Project
 from .output import write_text_atomic
 from .readme import render_readme
+from .scanner import creator_paths, project_paths, scan_creator, scan_project
+from .state import CatalogState
 from .thumbnails import ThumbnailCache
 
 
@@ -24,14 +29,104 @@ KIND_LABELS = {
     "video": "Videos",
     "audio": "Audio",
 }
+WARNING_SAMPLE_LIMIT = 200
+
+
+class WarningLog(List[CatalogWarning]):
+    """Count all notices while retaining only a bounded diagnostic sample."""
+
+    def __init__(self, sample_limit: int = WARNING_SAMPLE_LIMIT) -> None:
+        super().__init__()
+        self.sample_limit = sample_limit
+        self.total_count = 0
+
+    def append(self, warning: CatalogWarning) -> None:
+        self.total_count += 1
+        if len(self) < self.sample_limit:
+            super().append(warning)
+
+
+@dataclass(frozen=True)
+class ProjectSummary:
+    name: str
+    path: Path
+    page: Path
+    cover: Optional[str]
 
 
 @dataclass(frozen=True)
 class BuildResult:
     creator_count: int
     project_count: int
+    media_count: int
     warning_count: int
+    previews_generated: int
+    previews_reused: int
     index: Path
+
+
+class ProgressReporter:
+    def __init__(self, total_creators: int, enabled: bool) -> None:
+        self.total_creators = total_creators
+        self.enabled = enabled
+        self.creators = 0
+        self.projects = 0
+        self.media = 0
+        self.cache: Optional[ThumbnailCache] = None
+        self.started = time.monotonic()
+        self.last_report = self.started
+        self.reported = False
+
+    def attach_cache(self, cache: ThumbnailCache) -> None:
+        self.cache = cache
+
+    @staticmethod
+    def _duration(seconds: float) -> str:
+        rounded = max(0, int(seconds + 0.5))
+        minutes, remainder = divmod(rounded, 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours:
+            return f"{hours}h {minutes:02d}m"
+        if minutes:
+            return f"{minutes}m {remainder:02d}s"
+        return f"{remainder}s"
+
+    def update(self, force: bool = False) -> None:
+        if not self.enabled:
+            return
+        now = time.monotonic()
+        interval = 1.0 if sys.stderr.isatty() else 10.0
+        if not force and now - self.last_report < interval:
+            return
+        if not force and self.total_creators < 25:
+            return
+        generated = self.cache.generated_count if self.cache else 0
+        reused = self.cache.reused_count if self.cache else 0
+        elapsed = now - self.started
+        timing = f"elapsed {self._duration(elapsed)}"
+        if self.creators and self.creators < self.total_creators:
+            remaining = elapsed * (self.total_creators - self.creators) / self.creators
+            timing += f", ETA {self._duration(remaining)}"
+        message = (
+            f"Processed {self.creators}/{self.total_creators} creators · "
+            f"{self.projects} projects · {self.media} media · "
+            f"previews {reused} reused, {generated} generated · {timing}"
+        )
+        if sys.stderr.isatty():
+            print(f"\r{message}", end="", file=sys.stderr, flush=True)
+        else:
+            print(message, file=sys.stderr, flush=True)
+        self.last_report = now
+        self.reported = True
+
+    def finish(self) -> None:
+        if not self.enabled:
+            return
+        elapsed = time.monotonic() - self.started
+        if self.reported or self.total_creators >= 25 or elapsed >= 2:
+            self.update(force=True)
+            if sys.stderr.isatty():
+                print(file=sys.stderr)
 
 
 def _resource_text(name: str) -> str:
@@ -46,12 +141,12 @@ def _digest(path: Path) -> str:
     return hashlib.sha256(os.fsencode(path.resolve())).hexdigest()[:16]
 
 
-def _creator_page(output: Path, creator: Creator) -> Path:
-    return output / "creators" / f"{_digest(creator.path)}.html"
+def _creator_page(output: Path, creator_path: Path) -> Path:
+    return output / "creators" / f"{_digest(creator_path)}.html"
 
 
-def _project_page(output: Path, project: Project) -> Path:
-    return output / "projects" / f"{_digest(project.path)}.html"
+def _project_page(output: Path, project_path: Path) -> Path:
+    return output / "projects" / f"{_digest(project_path)}.html"
 
 
 def _href(target: Path, page: Path) -> str:
@@ -74,13 +169,20 @@ def _initial(name: str) -> str:
     return first if first.isalnum() else "#"
 
 
-def _placeholder(kind: str, name: str, label: Optional[str] = None) -> str:
-    text = label or next(
-        (character.upper() for character in name if character.isalnum()), "?"
+def _json_data(value: object) -> str:
+    return (
+        json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
     )
+
+
+def _placeholder(kind: str, name: str) -> str:
+    initial = next((character.upper() for character in name if character.isalnum()), "?")
     return (
         f'<span class="image-placeholder {kind}-placeholder" aria-hidden="true">'
-        f"<span>{html.escape(text)}</span></span>"
+        f"<span>{html.escape(initial)}</span></span>"
     )
 
 
@@ -102,16 +204,14 @@ def _artwork(
 
 
 def _navigation(output: Path, page: Path, active: str) -> str:
-    creators_class = " current" if active == "creators" else ""
-    projects_class = " current" if active == "projects" else ""
+    creators_class = "current" if active == "creators" else ""
+    projects_class = "current" if active == "projects" else ""
     return f"""
 <nav class="site-nav" aria-label="Primary navigation">
-  <a class="site-brand" href="{html.escape(_href(output / 'index.html', page), quote=True)}">
-    Directory Gallery
-  </a>
+  <a class="site-brand" href="{html.escape(_href(output / 'index.html', page), quote=True)}">Directory Gallery</a>
   <div class="site-nav-links">
-    <a class="{creators_class.strip()}" href="{html.escape(_href(output / 'index.html', page), quote=True)}">Creators</a>
-    <a class="{projects_class.strip()}" href="{html.escape(_href(output / 'projects.html', page), quote=True)}">Projects</a>
+    <a class="{creators_class}" href="{html.escape(_href(output / 'index.html', page), quote=True)}">Creators</a>
+    <a class="{projects_class}" href="{html.escape(_href(output / 'projects.html', page), quote=True)}">Projects</a>
   </div>
 </nav>""".strip()
 
@@ -147,8 +247,7 @@ def _document(
     content: str,
     body_class: str,
 ) -> str:
-    template = Template(_resource_text("index.html"))
-    return template.substitute(
+    return Template(_resource_text("index.html")).substitute(
         title_attribute=html.escape(title, quote=True),
         stylesheet=html.escape(
             _asset_href("assets/directory-gallery.css", output, page), quote=True
@@ -206,84 +305,36 @@ def _detail_header(
 </header>""".strip()
 
 
-def _alphabet_markup(entries: Sequence[Tuple[str, str]]) -> str:
-    first_for_initial: Dict[str, str] = {}
-    for name, anchor in entries:
-        first_for_initial.setdefault(_initial(name), anchor)
-    if not first_for_initial:
+def _alphabet_markup(initials: Iterable[str]) -> str:
+    values = sorted(set(initials), key=lambda value: (value == "#", value.casefold()))
+    if not values:
         return ""
-    links = "".join(
-        f'<a href="#{html.escape(anchor, quote=True)}" aria-label="Jump to {html.escape(initial, quote=True)}">{html.escape(initial)}</a>'
-        for initial, anchor in sorted(
-            first_for_initial.items(),
-            key=lambda item: (item[0] == "#", item[0].casefold()),
-        )
+    buttons = ['<button class="current" type="button" data-initial="">All</button>']
+    buttons.extend(
+        f'<button type="button" data-initial="{html.escape(value, quote=True)}">{html.escape(value)}</button>'
+        for value in values
     )
-    return f'<nav class="alphabet" aria-label="Alphabetical index">{links}</nav>'
+    return '<nav class="alphabet" aria-label="Filter by initial">' + "".join(buttons) + "</nav>"
 
 
-def _creator_card(
-    creator: Creator,
-    page: Path,
-    target: Path,
-    portrait: Optional[str],
-    output: Path,
-) -> str:
-    artwork = _artwork(
-        portrait, "portrait", creator.name, f"Portrait of {creator.name}", output, page
+def _overview_content(items: List[Dict[str, object]], kind: str, empty: str) -> str:
+    initials = (_initial(str(item["title"])) for item in items)
+    return (
+        _alphabet_markup(initials)
+        + f'<div class="overview-grid" data-overview-grid data-card-kind="{kind}"></div>'
+        + '<nav class="pagination" data-pagination aria-label="Overview pages" hidden>'
+        + '<button type="button" data-page-previous>Previous</button>'
+        + '<span data-page-status></span>'
+        + '<button type="button" data-page-next>Next</button></nav>'
+        + f'<p class="empty-state" id="no-results" hidden>{html.escape(empty)}</p>'
+        + f'<script type="application/json" id="overview-data">{_json_data(items)}</script>'
+        + '<noscript><p class="empty-state">JavaScript is required to browse this catalog.</p></noscript>'
     )
-    count = _count_label(len(creator.projects), "project")
-    anchor = f"item-{_digest(creator.path)}"
+
+
+def _rail(title: str, items: List[Dict[str, object]], kind: str) -> str:
     return f"""
-<a class="overview-card creator-overview-card" id="{anchor}" data-search-card
-   data-search-text="{html.escape(creator.name.casefold(), quote=True)}"
-   href="{html.escape(_href(target, page), quote=True)}">
-  <span class="overview-artwork portrait-frame">{artwork}</span>
-  <span class="overview-copy">
-    <span class="overview-title">{html.escape(creator.name)}</span>
-    <span class="overview-meta">{count}</span>
-  </span>
-</a>""".strip()
-
-
-def _project_card(
-    creator: Creator,
-    project: Project,
-    page: Path,
-    target: Path,
-    cover: Optional[str],
-    output: Path,
-    overview: bool = False,
-) -> str:
-    artwork = _artwork(
-        cover, "cover", project.name, f"Cover for {project.name}", output, page
-    )
-    classes = "overview-card project-overview-card" if overview else "project-card"
-    search = (
-        f' data-search-card data-search-text="{html.escape((project.name + " " + creator.name).casefold(), quote=True)}"'
-        if overview
-        else ""
-    )
-    anchor = f' id="item-{_digest(project.path)}"' if overview else ""
-    creator_label = (
-        f'<span class="overview-meta">{html.escape(creator.name)}</span>'
-        if overview
-        else ""
-    )
-    return f"""
-<a class="{classes}"{anchor}{search} href="{html.escape(_href(target, page), quote=True)}">
-  <span class="project-artwork cover-frame">{artwork}</span>
-  <span class="overview-copy">
-    <span class="overview-title">{html.escape(project.name)}</span>
-    {creator_label}
-  </span>
-</a>""".strip()
-
-
-def _rail(title: str, group_id: str, cards: Iterable[str], kind: str) -> str:
-    content = "\n".join(cards)
-    return f"""
-<section class="content-row" data-content-kind="{html.escape(kind, quote=True)}">
+<section class="content-row {html.escape(kind, quote=True)}-row" data-content-kind="{html.escape(kind, quote=True)}">
   <div class="row-heading">
     <h2>{html.escape(title)}</h2>
     <div class="row-actions">
@@ -291,348 +342,415 @@ def _rail(title: str, group_id: str, cards: Iterable[str], kind: str) -> str:
       <button type="button" data-rail-next aria-label="Scroll {html.escape(title, quote=True)} right">›</button>
     </div>
   </div>
-  <div class="rail-track" data-rail-track data-group-id="{html.escape(group_id, quote=True)}">{content}</div>
+  <div class="rail-track" data-rail-track><div class="rail-canvas" data-rail-canvas></div></div>
+  <script type="application/json" data-rail-data>{_json_data(items)}</script>
 </section>""".strip()
 
 
-def _media_card(
+def _project_row_items(
+    projects: Sequence[ProjectSummary], output: Path, page: Path
+) -> List[Dict[str, object]]:
+    return [
+        {
+            "kind": "project",
+            "title": project.name,
+            "href": _href(project.page, page),
+            "image": _asset_href(project.cover, output, page) if project.cover else None,
+            "placeholder": next(
+                (character.upper() for character in project.name if character.isalnum()),
+                "?",
+            ),
+        }
+        for project in projects
+    ]
+
+
+def _media_item_data(
     item: MediaItem,
-    group_id: str,
     page: Path,
     output: Path,
-    preview: Optional[str],
-) -> str:
-    source = html.escape(_href(item.path, page), quote=True)
-    poster_attribute = ""
-    if item.kind in {"image", "pdf", "video"} and preview:
-        thumbnail = _asset_href(preview, output, page)
-        image = (
-            f'<img src="{html.escape(thumbnail, quote=True)}" alt="" '
-            f'loading="lazy" decoding="async">'
-        )
-        if item.kind == "video":
-            poster_attribute = f' data-poster="{html.escape(thumbnail, quote=True)}"'
-    else:
-        glyph = {"image": "IMG", "pdf": "PDF", "video": "▶", "audio": "♪"}[item.kind]
-        image = _placeholder("media", item.name, glyph)
-
-    return f"""
-<button class="media-card {item.kind}-card" type="button"
-        data-media-kind="{item.kind}" data-media-group="{html.escape(group_id, quote=True)}"
-        data-media-src="{source}" data-media-title="{html.escape(item.name, quote=True)}"{poster_attribute}>
-  <span class="media-artwork">{image}</span>
-  <span class="media-title">{html.escape(item.name)}</span>
-</button>""".strip()
+    previews: Mapping[Path, Optional[str]],
+) -> Dict[str, object]:
+    preview = previews.get(item.path)
+    return {
+        "kind": item.kind,
+        "title": item.name,
+        "src": _href(item.path, page),
+        "image": _asset_href(preview, output, page) if preview else None,
+        "poster": (
+            _asset_href(preview, output, page)
+            if preview and item.kind == "video"
+            else None
+        ),
+        "placeholder": {
+            "image": "IMG",
+            "pdf": "PDF",
+            "video": "▶",
+            "audio": "♪",
+        }[item.kind],
+    }
 
 
 def _media_rows(
     groups: Sequence[MediaGroup],
-    owner: Path,
     page: Path,
     output: Path,
     previews: Mapping[Path, Optional[str]],
 ) -> str:
     rows = []
-    for index, group in enumerate(groups):
+    for group in groups:
         title = KIND_LABELS[group.kind]
         if group.directory is not None:
             title += f" · {group.directory.as_posix()}"
-        group_id = f"media-{_digest(owner)}-{group.kind}-{index}"
-        cards = (
-            _media_card(item, group_id, page, output, previews.get(item.path))
-            for item in group.items
-        )
-        rows.append(_rail(title, group_id, cards, group.kind))
+        items = [
+            _media_item_data(item, page, output, previews) for item in group.items
+        ]
+        rows.append(_rail(title, items, group.kind))
     return "\n".join(rows)
 
 
 def _readme_markup(markup: str) -> str:
-    if not markup:
-        return ""
-    return f'<article class="readme">{markup}</article>'
+    return f'<article class="readme">{markup}</article>' if markup else ""
 
 
-def _warnings_markup(warnings: List[CatalogWarning]) -> str:
-    if not warnings:
+def _warnings_markup(warnings: WarningLog) -> str:
+    if not warnings.total_count:
         return ""
     entries = "".join(
         f'<li data-warning-code="{html.escape(warning.code, quote=True)}">{html.escape(warning.message)}</li>'
         for warning in warnings
     )
-    label = _count_label(len(warnings), "catalog notice")
+    omitted = warnings.total_count - len(warnings)
+    if omitted:
+        entries += (
+            '<li data-warning-code="omitted">'
+            f"{_count_label(omitted, 'additional notice')} omitted from this report."
+            "</li>"
+        )
     return (
         '<details class="warnings">'
-        f"<summary>{label}</summary><ul>{entries}</ul></details>"
+        f"<summary>{_count_label(warnings.total_count, 'catalog notice')}</summary>"
+        f"<ul>{entries}</ul></details>"
     )
 
 
-def _prepare_previews(
-    catalog: Catalog,
-    cache: ThumbnailCache,
-) -> Tuple[Dict[Path, Optional[str]], Dict[Path, Optional[str]], Dict[Path, Optional[str]]]:
-    portraits: Dict[Path, Optional[str]] = {}
-    covers: Dict[Path, Optional[str]] = {}
-    media: Dict[Path, Optional[str]] = {}
-
-    for creator in catalog.creators:
-        portraits[creator.path] = (
-            cache.thumbnail_for(creator.portrait) if creator.portrait else None
-        )
-        for group in creator.media:
-            for item in group.items:
-                if item.kind == "image":
-                    media[item.path] = cache.thumbnail_for(item.path)
-                elif item.kind == "pdf":
-                    media[item.path] = cache.pdf_preview_for(item.path)
-                elif item.kind == "video" and item.poster:
-                    media[item.path] = cache.thumbnail_for(item.poster)
-                else:
-                    media[item.path] = None
-
-        for project in creator.projects:
-            covers[project.path] = (
-                cache.thumbnail_for(project.cover) if project.cover else None
-            )
-            for group in project.media:
-                for item in group.items:
-                    if item.kind == "image":
-                        media[item.path] = cache.thumbnail_for(item.path)
-                    elif item.kind == "pdf":
-                        media[item.path] = cache.pdf_preview_for(item.path)
-                    elif item.kind == "video" and item.poster:
-                        media[item.path] = cache.thumbnail_for(item.poster)
-                    else:
-                        media[item.path] = None
-
-    return portraits, covers, media
+def _prepare_media_previews(
+    groups: Sequence[MediaGroup], cache: ThumbnailCache
+) -> Dict[Path, Optional[str]]:
+    previews: Dict[Path, Optional[str]] = {}
+    for group in groups:
+        for item in group.items:
+            if item.kind == "image":
+                previews[item.path] = cache.thumbnail_for(item.path)
+            elif item.kind == "pdf":
+                previews[item.path] = cache.pdf_preview_for(item.path)
+            elif item.kind == "video" and item.poster:
+                previews[item.path] = cache.thumbnail_for(item.poster)
+            else:
+                previews[item.path] = None
+    return previews
 
 
-def build_site(catalog: Catalog, output: Path, title: str) -> BuildResult:
-    warnings = list(catalog.warnings)
-    cache = ThumbnailCache(output, warnings)
-    portraits, covers, previews = _prepare_previews(catalog, cache)
-    creator_pages = {
-        creator.path: _creator_page(output, creator) for creator in catalog.creators
-    }
-    project_pages = {
-        project.path: _project_page(output, project)
-        for creator in catalog.creators
-        for project in creator.projects
-    }
-    all_projects = sorted(
-        (
-            (creator, project)
-            for creator in catalog.creators
-            for project in creator.projects
-        ),
-        key=lambda item: (
-            item[1].name.casefold(),
-            item[1].name,
-            item[0].name.casefold(),
-            item[0].name,
-        ),
+def _media_count(groups: Sequence[MediaGroup]) -> int:
+    return sum(len(group.items) for group in groups)
+
+
+def _write_generated(
+    state: CatalogState, output: Path, path: Path, contents: str
+) -> None:
+    write_text_atomic(path, contents)
+    state.record_generated(path.relative_to(output).as_posix())
+
+
+def _render_project(
+    project: Project,
+    creator: Creator,
+    creator_page: Path,
+    page: Path,
+    output: Path,
+    title: str,
+    cover: Optional[str],
+    previews: Mapping[Path, Optional[str]],
+    warnings: List[CatalogWarning],
+) -> str:
+    artwork = _artwork(
+        cover, "cover", project.name, f"Cover for {project.name}", output, page
     )
-    generated = {
-        "index.html",
-        "projects.html",
-        "assets/directory-gallery.css",
-        "assets/directory-gallery.js",
-    }
-
-    for creator in catalog.creators:
-        page = creator_pages[creator.path]
-        generated.add(page.relative_to(output).as_posix())
-        portrait = _artwork(
-            portraits[creator.path],
-            "portrait",
-            creator.name,
-            f"Portrait of {creator.name}",
-            output,
-            page,
-        )
-        breadcrumb = (
-            f'<a href="{html.escape(_href(output / "index.html", page), quote=True)}">Creators</a>'
-            f"<span aria-hidden=\"true\">/</span><span>{html.escape(creator.name)}</span>"
-        )
-        header = _detail_header(
-            "Creator",
-            creator.name,
-            _count_label(len(creator.projects), "project"),
-            portrait,
-            "portrait",
-            breadcrumb,
-        )
-        readme = render_readme(creator.readme, creator.path, page, warnings)
-        rows = []
-        if creator.projects:
-            cards = (
-                _project_card(
-                    creator,
-                    project,
-                    page,
-                    project_pages[project.path],
-                    covers[project.path],
-                    output,
-                )
-                for project in creator.projects
-            )
-            rows.append(_rail("Projects", f"projects-{_digest(creator.path)}", cards, "project"))
-        rows.append(_media_rows(creator.media, creator.path, page, output, previews))
-        row_markup = "\n".join(row for row in rows if row)
-        if not row_markup:
-            row_markup = '<p class="empty-state">No supported media or projects.</p>'
-        document = _document(
-            output,
-            page,
-            f"{creator.name} — {title}",
-            "creators",
-            header,
-            _readme_markup(readme) + row_markup,
-            "detail-page creator-page",
-        )
-        write_text_atomic(page, document)
-
-        for project in creator.projects:
-            project_page = project_pages[project.path]
-            generated.add(project_page.relative_to(output).as_posix())
-            cover = _artwork(
-                covers[project.path],
-                "cover",
-                project.name,
-                f"Cover for {project.name}",
-                output,
-                project_page,
-            )
-            breadcrumb = (
-                f'<a href="{html.escape(_href(output / "projects.html", project_page), quote=True)}">Projects</a>'
-                f'<span aria-hidden="true">/</span><a href="{html.escape(_href(page, project_page), quote=True)}">{html.escape(creator.name)}</a>'
-                f'<span aria-hidden="true">/</span><span>{html.escape(project.name)}</span>'
-            )
-            project_header = _detail_header(
-                "Project",
-                project.name,
-                creator.name,
-                cover,
-                "cover",
-                breadcrumb,
-            )
-            project_readme = render_readme(
-                project.readme, project.path, project_page, warnings
-            )
-            rows = _media_rows(
-                project.media, project.path, project_page, output, previews
-            )
-            if not rows:
-                rows = '<p class="empty-state">No supported media.</p>'
-            project_document = _document(
-                output,
-                project_page,
-                f"{project.name} — {creator.name}",
-                "projects",
-                project_header,
-                _readme_markup(project_readme) + rows,
-                "detail-page project-page",
-            )
-            write_text_atomic(project_page, project_document)
-
-    projects_page = output / "projects.html"
-    project_entries = [
-        (project.name, f"item-{_digest(project.path)}")
-        for creator, project in all_projects
-    ]
-    project_cards = "\n".join(
-        _project_card(
-            creator,
-            project,
-            projects_page,
-            project_pages[project.path],
-            covers[project.path],
-            output,
-            overview=True,
-        )
-        for creator, project in all_projects
+    breadcrumb = (
+        f'<a href="{html.escape(_href(output / "projects.html", page), quote=True)}">Projects</a>'
+        f'<span aria-hidden="true">/</span><a href="{html.escape(_href(creator_page, page), quote=True)}">{html.escape(creator.name)}</a>'
+        f'<span aria-hidden="true">/</span><span>{html.escape(project.name)}</span>'
     )
-    if not project_cards:
-        project_cards = '<p class="empty-state">No projects found.</p>'
-    project_count = catalog.project_count
-    project_summary = (
-        f'<span id="visible-items">{project_count}</span> '
-        f'<span id="visible-label">{"project" if project_count == 1 else "projects"}</span>'
+    header = _detail_header(
+        "Project", project.name, creator.name, artwork, "cover", breadcrumb
     )
-    projects_header = _overview_header("Projects", project_summary, "Search projects and creators")
-    projects_content = (
-        _alphabet_markup(project_entries)
-        + f'<div class="overview-grid" data-overview-grid>{project_cards}</div>'
-        + '<p class="empty-state" id="no-results" hidden>No matching projects.</p>'
-    )
-    write_text_atomic(
-        projects_page,
-        _document(
-            output,
-            projects_page,
-            f"Projects — {title}",
-            "projects",
-            projects_header,
-            projects_content,
-            "overview-page projects-overview",
-        ),
+    readme = render_readme(project.readme, project.path, page, warnings)
+    rows = _media_rows(project.media, page, output, previews)
+    if not rows:
+        rows = '<p class="empty-state">No supported media.</p>'
+    return _document(
+        output,
+        page,
+        f"{project.name} — {creator.name}",
+        "projects",
+        header,
+        _readme_markup(readme) + rows,
+        "detail-page project-page",
     )
 
+
+def _render_creator(
+    creator: Creator,
+    projects: Sequence[ProjectSummary],
+    page: Path,
+    output: Path,
+    title: str,
+    portrait: Optional[str],
+    previews: Mapping[Path, Optional[str]],
+    warnings: List[CatalogWarning],
+) -> str:
+    artwork = _artwork(
+        portrait,
+        "portrait",
+        creator.name,
+        f"Portrait of {creator.name}",
+        output,
+        page,
+    )
+    breadcrumb = (
+        f'<a href="{html.escape(_href(output / "index.html", page), quote=True)}">Creators</a>'
+        f'<span aria-hidden="true">/</span><span>{html.escape(creator.name)}</span>'
+    )
+    header = _detail_header(
+        "Creator",
+        creator.name,
+        _count_label(len(projects), "project"),
+        artwork,
+        "portrait",
+        breadcrumb,
+    )
+    readme = render_readme(creator.readme, creator.path, page, warnings)
+    rows = []
+    if projects:
+        rows.append(
+            _rail("Projects", _project_row_items(projects, output, page), "project")
+        )
+    rows.append(_media_rows(creator.media, page, output, previews))
+    row_markup = "\n".join(row for row in rows if row)
+    if not row_markup:
+        row_markup = '<p class="empty-state">No supported media or projects.</p>'
+    return _document(
+        output,
+        page,
+        f"{creator.name} — {title}",
+        "creators",
+        header,
+        _readme_markup(readme) + row_markup,
+        "detail-page creator-page",
+    )
+
+
+def _creator_overview_items(
+    state: CatalogState, output: Path, page: Path
+) -> List[Dict[str, object]]:
+    items = []
+    for row in state.creators():
+        name = str(row["name"])
+        portrait = row["portrait"]
+        items.append(
+            {
+                "title": name,
+                "search": name.casefold(),
+                "initial": _initial(name),
+                "href": _href(output / str(row["page"]), page),
+                "image": _asset_href(str(portrait), output, page) if portrait else None,
+                "placeholder": next(
+                    (character.upper() for character in name if character.isalnum()),
+                    "?",
+                ),
+                "meta": _count_label(int(row["project_count"]), "project"),
+            }
+        )
+    return items
+
+
+def _project_overview_items(
+    state: CatalogState, output: Path, page: Path
+) -> List[Dict[str, object]]:
+    items = []
+    for row in state.projects():
+        name = str(row["name"])
+        creator = str(row["creator_name"])
+        cover = row["cover"]
+        items.append(
+            {
+                "title": name,
+                "search": f"{name} {creator}".casefold(),
+                "initial": _initial(name),
+                "href": _href(output / str(row["page"]), page),
+                "image": _asset_href(str(cover), output, page) if cover else None,
+                "placeholder": next(
+                    (character.upper() for character in name if character.isalnum()),
+                    "?",
+                ),
+                "meta": creator,
+            }
+        )
+    return items
+
+
+def build_site(
+    input_root: Path,
+    output: Path,
+    title: str,
+    exclusions: Sequence[str],
+    quiet: bool = False,
+) -> BuildResult:
+    warnings = WarningLog()
+    creators = creator_paths(input_root)
+    progress = ProgressReporter(len(creators), enabled=not quiet)
+    project_count = 0
+    media_count = 0
     index = output / "index.html"
-    creator_entries = [
-        (creator.name, f"item-{_digest(creator.path)}") for creator in catalog.creators
-    ]
-    creator_cards = "\n".join(
-        _creator_card(
-            creator,
-            index,
-            creator_pages[creator.path],
-            portraits[creator.path],
-            output,
+
+    with CatalogState(output, input_root, warnings) as state:
+        cache = ThumbnailCache(output, warnings, state, progress=progress.update)
+        progress.attach_cache(cache)
+
+        for creator_path in creators:
+            creator = scan_creator(creator_path, warnings)
+            creator_page = _creator_page(output, creator_path)
+            portrait = (
+                cache.thumbnail_for(creator.portrait) if creator.portrait else None
+            )
+            creator_media_count = _media_count(creator.media)
+            media_count += creator_media_count
+            progress.media = media_count
+            creator_previews = _prepare_media_previews(creator.media, cache)
+            summaries: List[ProjectSummary] = []
+
+            for project_path in project_paths(creator_path, exclusions):
+                project = scan_project(creator.name, project_path, warnings)
+                page = _project_page(output, project_path)
+                cover = cache.thumbnail_for(project.cover) if project.cover else None
+                project_media_count = _media_count(project.media)
+                media_count += project_media_count
+                project_count += 1
+                progress.projects = project_count
+                progress.media = media_count
+                previews = _prepare_media_previews(project.media, cache)
+                document = _render_project(
+                    project,
+                    creator,
+                    creator_page,
+                    page,
+                    output,
+                    title,
+                    cover,
+                    previews,
+                    warnings,
+                )
+                _write_generated(state, output, page, document)
+                relative_page = page.relative_to(output).as_posix()
+                state.record_project(
+                    project.path,
+                    creator.path,
+                    creator.name,
+                    project.name,
+                    relative_page,
+                    cover,
+                )
+                summaries.append(ProjectSummary(project.name, project.path, page, cover))
+                progress.update()
+
+            creator_document = _render_creator(
+                creator,
+                summaries,
+                creator_page,
+                output,
+                title,
+                portrait,
+                creator_previews,
+                warnings,
+            )
+            _write_generated(state, output, creator_page, creator_document)
+            state.record_creator(
+                creator.path,
+                creator.name,
+                creator_page.relative_to(output).as_posix(),
+                portrait,
+                len(summaries),
+            )
+            progress.creators += 1
+            progress.update()
+
+        projects_page = output / "projects.html"
+        project_items = _project_overview_items(state, output, projects_page)
+        project_summary = (
+            f'<span id="visible-items">{project_count}</span> '
+            f'<span id="visible-label">{"project" if project_count == 1 else "projects"}</span>'
         )
-        for creator in catalog.creators
-    )
-    if not creator_cards:
-        creator_cards = '<p class="empty-state">No creators found.</p>'
-    creator_count = len(catalog.creators)
-    creator_summary = (
-        f'<span id="visible-items">{creator_count}</span> '
-        f'<span id="visible-label">{"creator" if creator_count == 1 else "creators"}</span> · '
-        f'{_count_label(project_count, "project")}'
-    )
-    index_header = _overview_header(title, creator_summary, "Search creators")
-    index_content = (
-        _alphabet_markup(creator_entries)
-        + f'<div class="overview-grid" data-overview-grid>{creator_cards}</div>'
-        + '<p class="empty-state" id="no-results" hidden>No matching creators.</p>'
-        + _warnings_markup(warnings)
-    )
-    write_text_atomic(
-        index,
-        _document(
+        projects_header = _overview_header(
+            "Projects", project_summary, "Search projects and creators"
+        )
+        projects_content = _overview_content(
+            project_items, "project", "No matching projects."
+        )
+        _write_generated(
+            state,
+            output,
+            projects_page,
+            _document(
+                output,
+                projects_page,
+                f"Projects — {title}",
+                "projects",
+                projects_header,
+                projects_content,
+                "overview-page projects-overview",
+            ),
+        )
+
+        creator_items = _creator_overview_items(state, output, index)
+        creator_count = len(creators)
+        creator_summary = (
+            f'<span id="visible-items">{creator_count}</span> '
+            f'<span id="visible-label">{"creator" if creator_count == 1 else "creators"}</span> · '
+            f'{_count_label(project_count, "project")}'
+        )
+        index_header = _overview_header(title, creator_summary, "Search creators")
+        index_content = (
+            _overview_content(creator_items, "creator", "No matching creators.")
+            + _warnings_markup(warnings)
+        )
+        _write_generated(
+            state,
             output,
             index,
-            title,
-            "creators",
-            index_header,
-            index_content,
-            "overview-page creators-overview",
-        ),
-    )
+            _document(
+                output,
+                index,
+                title,
+                "creators",
+                index_header,
+                index_content,
+                "overview-page creators-overview",
+            ),
+        )
 
-    write_text_atomic(
-        output / "assets" / "directory-gallery.css",
-        _resource_text("gallery.css"),
-    )
-    write_text_atomic(
-        output / "assets" / "directory-gallery.js",
-        _resource_text("gallery.js"),
-    )
-    cache.finish(catalog.root, generated)
+        for name in ("gallery.css", "gallery.js"):
+            target_name = f"directory-gallery.{name.rsplit('.', 1)[1]}"
+            target = output / "assets" / target_name
+            _write_generated(state, output, target, _resource_text(name))
 
-    return BuildResult(
-        creator_count=creator_count,
-        project_count=project_count,
-        warning_count=len(warnings),
-        index=index,
-    )
+        state.finish()
+        progress.finish()
+        return BuildResult(
+            creator_count=creator_count,
+            project_count=project_count,
+            media_count=media_count,
+            warning_count=warnings.total_count,
+            previews_generated=cache.generated_count,
+            previews_reused=cache.reused_count,
+            index=index,
+        )

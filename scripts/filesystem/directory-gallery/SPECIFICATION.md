@@ -1,6 +1,6 @@
 # Directory Gallery specification
 
-Status: implemented for version 0.2.0
+Status: implemented for version 0.3.0
 
 ## Source model
 
@@ -87,6 +87,9 @@ Status: implemented for version 0.2.0
 - `projects.html` is a searchable global project overview grid.
 - Overview ordering is deterministic and alphabetical; there are no sorting
   controls.
+- Overview search and initial filters operate over the full embedded data set.
+- Overview cards are paginated in batches of 120, bounding the rendered grid
+  even when the embedded catalog is much larger.
 - Creator cards contain portrait, name, and project count.
 - Project cards contain cover, project title, and creator name.
 - Creator detail pages contain portrait, name, README, projects, and creator
@@ -94,6 +97,9 @@ Status: implemented for version 0.2.0
 - Project detail pages contain cover, title, creator, README, and project media.
 - Content rows scroll horizontally, expose left/right controls only when they
   overflow, and retain native touch and trackpad scrolling.
+- Content rows virtualize their cards and retain only a small viewport-adjacent
+  window in the DOM. The complete row metadata remains available for scrolling
+  and lightbox navigation.
 - Images, PDFs, videos, and audio open in a shared accessible lightbox.
 - Image navigation stays within the selected row and loads the original file.
 - PDFs use cached first-page thumbnails and an embedded browser PDF viewer.
@@ -114,6 +120,7 @@ Status: implemented for version 0.2.0
 - Backslashes, `**`, empty patterns, empty components, and more than two
   components are rejected.
 - `--title TEXT` overrides the catalog title.
+- `--quiet` suppresses progress reports.
 - `--version` reports the program version.
 - Argument syntax errors exit with status 2, user/filesystem errors with status
   1, and interruption with status 130.
@@ -126,7 +133,28 @@ Status: implemented for version 0.2.0
 - A cache record includes the resolved source path, preview type, size, and
   nanosecond modification time.
 - An unchanged record with an existing generated file is reused.
-- Changed sources are regenerated; stale manifest-owned previews are pruned.
+- Preview files use `thumbnails/HH/HH/HASH.jpg`, with the first four hash
+  characters split across two directory levels.
+- Cache records are held in the output SQLite database and updated in bounded
+  transactions.
+- Changed sources are regenerated; stale database-owned previews are pruned.
+
+## Scale behavior
+
+- The generator scans and renders one project at a time; only the current
+  project's media and one creator's project summaries are retained in memory.
+- Creator/project overview records, preview records, and generated-file
+  ownership are stored in SQLite and selected in deterministic order.
+- Overview metadata is materialized only while its corresponding overview page
+  is rendered. At expected scales of roughly 1,000 creators and 10,000
+  projects, this remains modest compared with media metadata.
+- Catalog notices retain at most 200 detailed messages in memory and HTML while
+  preserving the complete notice count.
+- Progress includes creator, project, and media counts, generated/reused
+  previews, elapsed time, and a creator-based ETA when one can be calculated.
+- Time and disk cost remain linear in the files scanned and previews generated;
+  the initial build cannot avoid reading every supported file that needs a
+  preview.
 
 ## Output safety
 
@@ -135,10 +163,13 @@ Status: implemented for version 0.2.0
 - A missing output and its parents are created; an empty output is accepted.
 - A non-empty output requires a valid compatible manifest.
 - Generated text files are replaced atomically.
-- The manifest records overview pages, hashed creator/project pages, assets, and
-  previews.
-- Stale generated pages are removed only when recorded by the previous manifest
+- A small format-2 manifest identifies the generator, input, and SQLite state
+  database. The database records overview pages, hashed creator/project pages,
+  assets, and previews.
+- A format-1 manifest from version 0.2 is migrated automatically. Valid flat
+  previews are moved into the sharded layout and retained in the database.
+- Stale generated pages are removed only when recorded by the state database
   and matching a strict generator-owned path pattern.
-- Stale previews are removed only when recorded by the previous manifest and
-  matching a strict hashed JPEG filename.
+- Stale previews are removed only when recorded by the state database and
+  matching the strict sharded hashed JPEG pattern.
 - Unrelated output files are never removed.

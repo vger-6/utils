@@ -191,7 +191,8 @@ input::placeholder {
   margin: 0 0 26px;
 }
 
-.alphabet a {
+.alphabet a,
+.alphabet button {
   display: grid;
   min-width: 34px;
   height: 34px;
@@ -203,9 +204,12 @@ input::placeholder {
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 700;
+  cursor: pointer;
 }
 
-.alphabet a:hover {
+.alphabet a:hover,
+.alphabet button:hover,
+.alphabet button.current {
   border-color: var(--border-strong);
   background: var(--surface-hover);
   color: var(--text);
@@ -273,16 +277,20 @@ input::placeholder {
 
 .portrait-image,
 .cover-image,
+.overview-artwork img,
+.project-artwork img,
 .media-artwork img {
   width: 100%;
   height: 100%;
 }
 
-.portrait-image {
+.portrait-image,
+.creator-overview-card .overview-artwork img {
   object-fit: cover;
 }
 
 .cover-image,
+.project-artwork img,
 .media-artwork img {
   object-fit: contain;
 }
@@ -421,6 +429,35 @@ input::placeholder {
   margin-top: 44px;
 }
 
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 30px auto 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.pagination button {
+  padding: 11px 18px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-raised);
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.pagination button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.pagination button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
 .row-heading {
   display: flex;
   align-items: center;
@@ -470,10 +507,10 @@ input::placeholder {
 }
 
 .rail-track {
-  display: grid;
-  grid-auto-columns: 180px;
-  grid-auto-flow: column;
-  gap: 16px;
+  --rail-card-width: 180;
+  --rail-gap: 16;
+  position: relative;
+  height: 248px;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
   padding: 3px 3px 14px;
@@ -483,7 +520,24 @@ input::placeholder {
   scrollbar-width: thin;
 }
 
-.rail-track > * {
+.project-row .rail-track,
+.pdf-row .rail-track,
+.video-row .rail-track {
+  height: 288px;
+}
+
+.audio-row .rail-track {
+  height: 184px;
+}
+
+.rail-canvas {
+  position: relative;
+  height: 100%;
+}
+
+.virtual-card {
+  position: absolute;
+  top: 0;
   scroll-snap-align: start;
 }
 
@@ -757,7 +811,18 @@ input::placeholder {
   }
 
   .rail-track {
-    grid-auto-columns: 145px;
+    --rail-card-width: 145;
+    height: 214px;
+  }
+
+  .project-row .rail-track,
+  .pdf-row .rail-track,
+  .video-row .rail-track {
+    height: 250px;
+  }
+
+  .audio-row .rail-track {
+    height: 166px;
   }
 
   .project-card,

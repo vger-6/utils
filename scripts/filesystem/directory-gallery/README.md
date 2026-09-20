@@ -50,6 +50,14 @@ python3 -m venv .venv
 directory-gallery INPUT_FOLDER OUTPUT_FOLDER
 ```
 
+Large builds report creators, projects, media, preview reuse, elapsed time, and
+an estimated completion time on standard error. Suppress those reports when
+running from a script:
+
+```bash
+directory-gallery INPUT_FOLDER OUTPUT_FOLDER --quiet
+```
+
 Use a custom catalog title:
 
 ```bash
@@ -79,12 +87,16 @@ depends on the codecs installed in that browser.
 
 - `index.html` is a searchable creator grid using portrait cards.
 - `projects.html` is a searchable global project grid using cover cards.
+- Overview grids show at most 120 cards per page. Search and initial filters
+  still operate over the complete catalog.
 - Every creator has a dedicated page with its portrait, exact `README.md`, a
   project row, and allowed creator media.
 - Every project has a dedicated page with its cover, exact `README.md`, and
   recursively discovered media.
 - Project and media rows scroll horizontally using arrow buttons, touch,
   trackpads, or native horizontal scrolling.
+- Horizontal rows render only cards near the visible viewport. Lightbox
+  previous/next navigation still covers every item in the row.
 - Rows are ordered by media type: images, PDFs, videos, then audio. Root content
   precedes alphabetically ordered subdirectory rows within each type.
 - Clicking an image, PDF, video, or audio item opens the shared lightbox. Audio
@@ -152,12 +164,38 @@ HTTP, HTTPS, and mail links remain active. Relative links are rewritten only
 when they stay inside the creator or project and target an allowed media file;
 other relative links are disabled.
 
+## Large collections
+
+Generation is streamed one project at a time. Creator and project summaries,
+preview metadata, and generated-file ownership are stored in SQLite instead of
+being retained in a large in-memory manifest. This keeps generator memory tied
+mainly to the largest individual project rather than to the entire collection.
+
+Overview pagination and virtualized horizontal rows bound the number of cards
+in the browser DOM. The complete lightweight metadata for the current overview
+or row remains embedded in its page, so local search and lightbox navigation do
+not require a web server. Catalog notices keep a representative sample of 200
+messages while still reporting the complete count.
+
+The first build must still inspect every supported file and create every image
+or PDF preview. For very large collections, that work and the resulting disk
+usage are inherently proportional to the media count. Later builds reuse
+unchanged previews, but they still scan the source tree so additions and
+removals are detected.
+
 ## Output and cache safety
 
 The output contains the two overview pages, hashed creator/project pages,
-shared CSS and JavaScript, cached thumbnails, and
-`.directory-gallery-manifest.json`. Image thumbnails and PDF previews are
-updated incrementally using source paths, sizes, and modification times.
+shared CSS and JavaScript, cached previews, a small
+`.directory-gallery-manifest.json`, and a
+`.directory-gallery-cache.sqlite3` state database. Image thumbnails and PDF
+previews are updated incrementally using source paths, sizes, and modification
+times. Preview files are split across two levels of hash-prefix directories so
+no single cache directory becomes excessively large.
+
+Outputs made by version 0.2 are upgraded automatically on the next successful
+build. Existing valid previews are moved into the sharded layout and reused;
+the source collection is not touched.
 
 The output must be empty or already managed by Directory Gallery. Input and
 output trees may not overlap. Stale pages and thumbnails are removed only when
