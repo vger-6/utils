@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "directory-gallery"
+version = "0.1.0"
+description = "Generate a static HTML gallery from a two-level directory tree"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "GPL-3.0-or-later" }
+dependencies = ["Pillow>=10,<13"]
+
+[project.scripts]
+directory-gallery = "directory_gallery.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+directory_gallery = ["resources/*"]
