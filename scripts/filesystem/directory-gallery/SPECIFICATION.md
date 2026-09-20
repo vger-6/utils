@@ -1,6 +1,6 @@
 # Directory Gallery specification
 
-Status: implemented for version 0.3.0
+Status: implemented for version 0.4.0
 
 ## Source model
 
@@ -83,13 +83,25 @@ Status: implemented for version 0.3.0
 ## Generated interface
 
 - The interface has a dark theme only and no external runtime dependencies.
-- `index.html` is a searchable creator overview grid.
-- `projects.html` is a searchable global project overview grid.
+- The `separate` overview mode is the default. `index.html` is a searchable
+  creator grid and `projects.html` is a searchable global project grid.
+- The `grouped` overview mode produces only `index.html` as an overview.
+  Creators are stacked vertically, and each creator's projects form a
+  horizontal row beneath its heading.
+- Grouped creator headings contain the portrait and name when a portrait is
+  available. A missing or unreadable portrait is omitted without a placeholder.
+- Creator and project detail pages are generated in both overview modes.
+- Grouped navigation and detail-page breadcrumbs return to `index.html`; they
+  never link to an absent `projects.html`.
 - Overview ordering is deterministic and alphabetical; there are no sorting
   controls.
 - Overview search and initial filters operate over the full embedded data set.
+- Grouped search matches creator and project names. When only project names
+  match, the creator remains visible with only its matching projects.
 - Overview cards are paginated in batches of 120, bounding the rendered grid
   even when the embedded catalog is much larger.
+- Grouped overviews are paginated in batches of 40 creators. Horizontal rows
+  are initialized only for creators on the current page.
 - Creator cards contain portrait, name, and project count.
 - Project cards contain cover, project title, and creator name.
 - Creator detail pages contain portrait, name, README, projects, and creator
@@ -120,6 +132,8 @@ Status: implemented for version 0.3.0
 - Backslashes, `**`, empty patterns, empty components, and more than two
   components are rejected.
 - `--title TEXT` overrides the catalog title.
+- `--overview {separate,grouped}` selects the overview structure and defaults
+  to `separate`.
 - `--quiet` suppresses progress reports.
 - `--version` reports the program version.
 - Argument syntax errors exit with status 2, user/filesystem errors with status
@@ -148,6 +162,8 @@ Status: implemented for version 0.3.0
 - Overview metadata is materialized only while its corresponding overview page
   is rendered. At expected scales of roughly 1,000 creators and 10,000
   projects, this remains modest compared with media metadata.
+- Grouped overview project lookups use an indexed creator path and retain only
+  40 creator sections in the live DOM at once.
 - Catalog notices retain at most 200 detailed messages in memory and HTML while
   preserving the complete notice count.
 - Progress includes creator, project, and media counts, generated/reused

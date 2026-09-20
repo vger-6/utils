@@ -203,14 +203,24 @@ def _artwork(
     )
 
 
-def _navigation(output: Path, page: Path, active: str) -> str:
+def _navigation(output: Path, page: Path, active: str, overview: str) -> str:
+    index_href = html.escape(_href(output / "index.html", page), quote=True)
+    if overview == "grouped":
+        return f"""
+<nav class="site-nav" aria-label="Primary navigation">
+  <a class="site-brand" href="{index_href}">Directory Gallery</a>
+  <div class="site-nav-links">
+    <a class="current" href="{index_href}">Overview</a>
+  </div>
+</nav>""".strip()
+
     creators_class = "current" if active == "creators" else ""
     projects_class = "current" if active == "projects" else ""
     return f"""
 <nav class="site-nav" aria-label="Primary navigation">
-  <a class="site-brand" href="{html.escape(_href(output / 'index.html', page), quote=True)}">Directory Gallery</a>
+  <a class="site-brand" href="{index_href}">Directory Gallery</a>
   <div class="site-nav-links">
-    <a class="{creators_class}" href="{html.escape(_href(output / 'index.html', page), quote=True)}">Creators</a>
+    <a class="{creators_class}" href="{index_href}">Creators</a>
     <a class="{projects_class}" href="{html.escape(_href(output / 'projects.html', page), quote=True)}">Projects</a>
   </div>
 </nav>""".strip()
@@ -246,6 +256,7 @@ def _document(
     header: str,
     content: str,
     body_class: str,
+    overview: str,
 ) -> str:
     return Template(_resource_text("index.html")).substitute(
         title_attribute=html.escape(title, quote=True),
@@ -256,7 +267,7 @@ def _document(
             _asset_href("assets/directory-gallery.js", output, page), quote=True
         ),
         body_class=html.escape(body_class, quote=True),
-        navigation=_navigation(output, page, active),
+        navigation=_navigation(output, page, active, overview),
         header=header,
         content=content,
         lightbox=_lightbox(),
@@ -472,12 +483,17 @@ def _render_project(
     cover: Optional[str],
     previews: Mapping[Path, Optional[str]],
     warnings: List[CatalogWarning],
+    overview: str,
 ) -> str:
     artwork = _artwork(
         cover, "cover", project.name, f"Cover for {project.name}", output, page
     )
+    overview_page = output / (
+        "projects.html" if overview == "separate" else "index.html"
+    )
+    overview_label = "Projects" if overview == "separate" else "Overview"
     breadcrumb = (
-        f'<a href="{html.escape(_href(output / "projects.html", page), quote=True)}">Projects</a>'
+        f'<a href="{html.escape(_href(overview_page, page), quote=True)}">{overview_label}</a>'
         f'<span aria-hidden="true">/</span><a href="{html.escape(_href(creator_page, page), quote=True)}">{html.escape(creator.name)}</a>'
         f'<span aria-hidden="true">/</span><span>{html.escape(project.name)}</span>'
     )
@@ -496,6 +512,7 @@ def _render_project(
         header,
         _readme_markup(readme) + rows,
         "detail-page project-page",
+        overview,
     )
 
 
@@ -508,6 +525,7 @@ def _render_creator(
     portrait: Optional[str],
     previews: Mapping[Path, Optional[str]],
     warnings: List[CatalogWarning],
+    overview: str,
 ) -> str:
     artwork = _artwork(
         portrait,
@@ -518,7 +536,8 @@ def _render_creator(
         page,
     )
     breadcrumb = (
-        f'<a href="{html.escape(_href(output / "index.html", page), quote=True)}">Creators</a>'
+        f'<a href="{html.escape(_href(output / "index.html", page), quote=True)}">'
+        f'{"Creators" if overview == "separate" else "Overview"}</a>'
         f'<span aria-hidden="true">/</span><span>{html.escape(creator.name)}</span>'
     )
     header = _detail_header(
@@ -547,6 +566,7 @@ def _render_creator(
         header,
         _readme_markup(readme) + row_markup,
         "detail-page creator-page",
+        overview,
     )
 
 
@@ -599,13 +619,81 @@ def _project_overview_items(
     return items
 
 
+def _grouped_overview_items(
+    state: CatalogState, output: Path, page: Path
+) -> List[Dict[str, object]]:
+    items: List[Dict[str, object]] = []
+    for creator_row in state.creators():
+        creator_name = str(creator_row["name"])
+        portrait = creator_row["portrait"]
+        projects = []
+        for project_row in state.projects_for_creator(str(creator_row["source_path"])):
+            project_name = str(project_row["name"])
+            cover = project_row["cover"]
+            projects.append(
+                {
+                    "kind": "project",
+                    "title": project_name,
+                    "search": project_name.casefold(),
+                    "href": _href(output / str(project_row["page"]), page),
+                    "image": (
+                        _asset_href(str(cover), output, page) if cover else None
+                    ),
+                    "placeholder": next(
+                        (
+                            character.upper()
+                            for character in project_name
+                            if character.isalnum()
+                        ),
+                        "?",
+                    ),
+                }
+            )
+        items.append(
+            {
+                "title": creator_name,
+                "search": creator_name.casefold(),
+                "initial": _initial(creator_name),
+                "href": _href(output / str(creator_row["page"]), page),
+                "image": (
+                    _asset_href(str(portrait), output, page) if portrait else None
+                ),
+                "projects": projects,
+            }
+        )
+    return items
+
+
+def _grouped_overview_content(
+    items: List[Dict[str, object]], empty: str
+) -> str:
+    initials = (_initial(str(item["title"])) for item in items)
+    return (
+        _alphabet_markup(initials)
+        + '<div class="grouped-list" data-grouped-list></div>'
+        + '<nav class="pagination" data-grouped-pagination '
+        + 'aria-label="Overview pages" hidden>'
+        + '<button type="button" data-grouped-previous>Previous</button>'
+        + '<span data-grouped-status></span>'
+        + '<button type="button" data-grouped-next>Next</button></nav>'
+        + f'<p class="empty-state" id="no-results" hidden>{html.escape(empty)}</p>'
+        + '<script type="application/json" id="grouped-data">'
+        + f"{_json_data(items)}</script>"
+        + "<noscript><p class=\"empty-state\">"
+        + "JavaScript is required to browse this catalog.</p></noscript>"
+    )
+
+
 def build_site(
     input_root: Path,
     output: Path,
     title: str,
     exclusions: Sequence[str],
+    overview: str = "separate",
     quiet: bool = False,
 ) -> BuildResult:
+    if overview not in {"separate", "grouped"}:
+        raise ValueError(f"unknown overview mode: {overview}")
     warnings = WarningLog()
     creators = creator_paths(input_root)
     progress = ProgressReporter(len(creators), enabled=not quiet)
@@ -649,6 +737,7 @@ def build_site(
                     cover,
                     previews,
                     warnings,
+                    overview,
                 )
                 _write_generated(state, output, page, document)
                 relative_page = page.relative_to(output).as_posix()
@@ -672,6 +761,7 @@ def build_site(
                 portrait,
                 creator_previews,
                 warnings,
+                overview,
             )
             _write_generated(state, output, creator_page, creator_document)
             state.record_creator(
@@ -684,45 +774,59 @@ def build_site(
             progress.creators += 1
             progress.update()
 
-        projects_page = output / "projects.html"
-        project_items = _project_overview_items(state, output, projects_page)
-        project_summary = (
-            f'<span id="visible-items">{project_count}</span> '
-            f'<span id="visible-label">{"project" if project_count == 1 else "projects"}</span>'
-        )
-        projects_header = _overview_header(
-            "Projects", project_summary, "Search projects and creators"
-        )
-        projects_content = _overview_content(
-            project_items, "project", "No matching projects."
-        )
-        _write_generated(
-            state,
-            output,
-            projects_page,
-            _document(
-                output,
-                projects_page,
-                f"Projects — {title}",
-                "projects",
-                projects_header,
-                projects_content,
-                "overview-page projects-overview",
-            ),
-        )
-
-        creator_items = _creator_overview_items(state, output, index)
         creator_count = len(creators)
         creator_summary = (
             f'<span id="visible-items">{creator_count}</span> '
             f'<span id="visible-label">{"creator" if creator_count == 1 else "creators"}</span> · '
-            f'{_count_label(project_count, "project")}'
+            f'<span id="visible-projects">{project_count}</span> '
+            f'<span id="visible-project-label">{"project" if project_count == 1 else "projects"}</span>'
         )
-        index_header = _overview_header(title, creator_summary, "Search creators")
-        index_content = (
-            _overview_content(creator_items, "creator", "No matching creators.")
-            + _warnings_markup(warnings)
-        )
+
+        if overview == "separate":
+            projects_page = output / "projects.html"
+            project_items = _project_overview_items(state, output, projects_page)
+            project_summary = (
+                f'<span id="visible-items">{project_count}</span> '
+                f'<span id="visible-label">'
+                f'{"project" if project_count == 1 else "projects"}</span>'
+            )
+            projects_header = _overview_header(
+                "Projects", project_summary, "Search projects and creators"
+            )
+            projects_content = _overview_content(
+                project_items, "project", "No matching projects."
+            )
+            _write_generated(
+                state,
+                output,
+                projects_page,
+                _document(
+                    output,
+                    projects_page,
+                    f"Projects — {title}",
+                    "projects",
+                    projects_header,
+                    projects_content,
+                    "overview-page projects-overview",
+                    overview,
+                ),
+            )
+            creator_items = _creator_overview_items(state, output, index)
+            index_content = _overview_content(
+                creator_items, "creator", "No matching creators."
+            )
+            search_label = "Search creators"
+            body_class = "overview-page creators-overview"
+        else:
+            grouped_items = _grouped_overview_items(state, output, index)
+            index_content = _grouped_overview_content(
+                grouped_items, "No matching creators or projects."
+            )
+            search_label = "Search creators and projects"
+            body_class = "overview-page grouped-overview"
+
+        index_header = _overview_header(title, creator_summary, search_label)
+        index_content += _warnings_markup(warnings)
         _write_generated(
             state,
             output,
@@ -734,7 +838,8 @@ def build_site(
                 "creators",
                 index_header,
                 index_content,
-                "overview-page creators-overview",
+                body_class,
+                overview,
             ),
         )
 

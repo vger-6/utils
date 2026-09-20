@@ -1,9 +1,9 @@
 # Directory Gallery
 
 Directory Gallery generates a modern, dark, static media catalog from a
-creator/project directory tree. It builds overview grids, dedicated creator and
-project pages, cached previews, homogeneous media rows, and local lightbox
-viewers without changing the source collection.
+creator/project directory tree. It builds separate or grouped overviews,
+dedicated creator and project pages, cached previews, homogeneous media rows,
+and local lightbox viewers without changing the source collection.
 
 ```text
 INPUT/
@@ -64,6 +64,19 @@ Use a custom catalog title:
 directory-gallery INPUT_FOLDER OUTPUT_FOLDER --title "My collection"
 ```
 
+The default `separate` overview provides creator and project grids. For a
+single overview with creators stacked vertically and their projects in
+horizontal rows, use:
+
+```bash
+directory-gallery INPUT_FOLDER OUTPUT_FOLDER --overview grouped
+```
+
+Grouped mode is useful for collections such as books, where project covers are
+usually more important than creator portraits. A creator portrait is shown
+above its projects when present and omitted entirely when missing. Both modes
+retain the creator and project detail pages.
+
 Exclude projects with repeatable, case-sensitive patterns:
 
 ```bash
@@ -85,10 +98,14 @@ depends on the codecs installed in that browser.
 
 ## Pages and navigation
 
-- `index.html` is a searchable creator grid using portrait cards.
-- `projects.html` is a searchable global project grid using cover cards.
-- Overview grids show at most 120 cards per page. Search and initial filters
-  still operate over the complete catalog.
+- In the default `--overview separate` mode, `index.html` is a searchable
+  creator grid and `projects.html` is a searchable global project grid.
+- In `--overview grouped` mode, `index.html` is the only overview. Creators are
+  stacked vertically with horizontal project rows. Portraits appear only when
+  present; missing portraits do not produce placeholders.
+- Separate grids show at most 120 cards per page. The grouped overview shows at
+  most 40 creators per page. Search and initial filters still operate over the
+  complete catalog; grouped search matches creator and project names.
 - Every creator has a dedicated page with its portrait, exact `README.md`, a
   project row, and allowed creator media.
 - Every project has a dedicated page with its cover, exact `README.md`, and
@@ -172,10 +189,11 @@ being retained in a large in-memory manifest. This keeps generator memory tied
 mainly to the largest individual project rather than to the entire collection.
 
 Overview pagination and virtualized horizontal rows bound the number of cards
-in the browser DOM. The complete lightweight metadata for the current overview
-or row remains embedded in its page, so local search and lightbox navigation do
-not require a web server. Catalog notices keep a representative sample of 200
-messages while still reporting the complete count.
+in the browser DOM. This includes creator-level pagination in grouped mode.
+The complete lightweight metadata for the current overview or row remains
+embedded in its page, so local search and lightbox navigation do not require a
+web server. Catalog notices keep a representative sample of 200 messages while
+still reporting the complete count.
 
 The first build must still inspect every supported file and create every image
 or PDF preview. For very large collections, that work and the resulting disk
@@ -185,8 +203,8 @@ removals are detected.
 
 ## Output and cache safety
 
-The output contains the two overview pages, hashed creator/project pages,
-shared CSS and JavaScript, cached previews, a small
+The output contains one or two overview pages depending on `--overview`, hashed
+creator/project pages, shared CSS and JavaScript, cached previews, a small
 `.directory-gallery-manifest.json`, and a
 `.directory-gallery-cache.sqlite3` state database. Image thumbnails and PDF
 previews are updated incrementally using source paths, sizes, and modification

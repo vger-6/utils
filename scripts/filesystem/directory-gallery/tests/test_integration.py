@@ -217,6 +217,118 @@ class IntegrationTests(unittest.TestCase):
                 ["Alpha", "Zulu"],
             )
 
+    def test_grouped_overview_stacks_creators_and_projects_without_portrait_placeholders(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            source = temporary / "Source"
+            creator_a = source / "Creator A"
+            creator_b = source / "Creator B"
+            make_image(creator_a / "portrait.jpg", "navy")
+            make_image(creator_a / "Zulu" / "cover.jpg", "red")
+            make_image(creator_a / "Alpha" / "cover.jpg", "green")
+            make_image(creator_b / "Only Project" / "cover.jpg", "blue")
+            output = temporary / "site"
+
+            self.assertEqual(
+                main(
+                    [
+                        str(source),
+                        str(output),
+                        "--overview",
+                        "grouped",
+                        "--quiet",
+                    ]
+                ),
+                0,
+            )
+
+            index = (output / "index.html").read_text(encoding="utf-8")
+            items = embedded_data(index, 'id="grouped-data"')
+            self.assertEqual(
+                [item["title"] for item in items], ["Creator A", "Creator B"]
+            )
+            self.assertEqual(
+                [project["title"] for project in items[0]["projects"]],
+                ["Alpha", "Zulu"],
+            )
+            self.assertIsNotNone(items[0]["image"])
+            self.assertIsNone(items[1]["image"])
+            self.assertIn('class="overview-page grouped-overview"', index)
+            self.assertIn("data-grouped-list", index)
+            self.assertIn(">Overview</a>", index)
+            self.assertNotIn(">Creators</a>", index)
+            self.assertNotIn(">Projects</a>", index)
+            self.assertNotIn("portrait-placeholder", index)
+            self.assertFalse((output / "projects.html").exists())
+            self.assertEqual(len(list((output / "creators").glob("*.html"))), 2)
+            self.assertEqual(len(list((output / "projects").glob("*.html"))), 3)
+
+            project_detail = next((output / "projects").glob("*.html"))
+            detail_html = project_detail.read_text(encoding="utf-8")
+            self.assertIn(">Overview</a>", detail_html)
+            self.assertNotIn('href="../projects.html">Projects</a>', detail_html)
+
+    def test_switching_overview_modes_removes_and_restores_projects_overview(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            source = temporary / "Source"
+            (source / "Creator" / "Project").mkdir(parents=True)
+            output = temporary / "site"
+
+            self.assertEqual(main([str(source), str(output), "--quiet"]), 0)
+            self.assertTrue((output / "projects.html").is_file())
+
+            self.assertEqual(
+                main(
+                    [
+                        str(source),
+                        str(output),
+                        "--overview",
+                        "grouped",
+                        "--quiet",
+                    ]
+                ),
+                0,
+            )
+            self.assertFalse((output / "projects.html").exists())
+
+            self.assertEqual(main([str(source), str(output), "--quiet"]), 0)
+            self.assertTrue((output / "projects.html").is_file())
+
+    def test_grouped_overview_embeds_large_catalog_without_static_creator_sections(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            source = temporary / "Source"
+            for creator_number in range(45):
+                for project_number in range(2):
+                    project = (
+                        source
+                        / f"Creator {creator_number:02d}"
+                        / f"Project {project_number}"
+                    )
+                    project.mkdir(parents=True)
+            output = temporary / "site"
+
+            self.assertEqual(
+                main(
+                    [
+                        str(source),
+                        str(output),
+                        "--overview",
+                        "grouped",
+                        "--quiet",
+                    ]
+                ),
+                0,
+            )
+
+            index = (output / "index.html").read_text(encoding="utf-8")
+            items = embedded_data(index, 'id="grouped-data"')
+            self.assertEqual(len(items), 45)
+            self.assertTrue(all(len(item["projects"]) == 2 for item in items))
+            self.assertNotIn('class="grouped-creator"', index)
+            self.assertIn("data-grouped-pagination", index)
+
     def test_unreadable_artwork_falls_back_to_placeholder(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)

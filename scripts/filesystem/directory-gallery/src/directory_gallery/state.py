@@ -113,6 +113,13 @@ class CatalogState:
                 ON creators(last_seen, name COLLATE NOCASE, name);
             CREATE INDEX IF NOT EXISTS projects_seen_name
                 ON projects(last_seen, name COLLATE NOCASE, name);
+            CREATE INDEX IF NOT EXISTS projects_seen_creator_name
+                ON projects(
+                    last_seen,
+                    creator_path,
+                    name COLLATE NOCASE,
+                    name
+                );
             """
         )
         stored = self.connection.execute(
@@ -320,6 +327,18 @@ class CatalogState:
             ORDER BY name COLLATE NOCASE, name, creator_name COLLATE NOCASE, creator_name
             """,
             (self.run_id,),
+        )
+        yield from cursor
+
+    def projects_for_creator(self, creator_path: str) -> Iterator[sqlite3.Row]:
+        cursor = self.connection.execute(
+            """
+            SELECT source_path, name, page, cover
+            FROM projects
+            WHERE last_seen = ? AND creator_path = ?
+            ORDER BY name COLLATE NOCASE, name
+            """,
+            (self.run_id, creator_path),
         )
         yield from cursor
 

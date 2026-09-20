@@ -45,6 +45,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="page title; defaults to the input directory name",
     )
     parser.add_argument(
+        "--overview",
+        choices=("separate", "grouped"),
+        default="separate",
+        help=(
+            "overview structure: separate creator/project grids (default) "
+            "or creators with horizontal project rows"
+        ),
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
         help="suppress progress reports while generating",
@@ -63,6 +72,7 @@ def run(arguments: argparse.Namespace) -> int:
         output,
         arguments.title or default_title,
         arguments.exclude,
+        overview=arguments.overview,
         quiet=arguments.quiet,
     )
 
