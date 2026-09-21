@@ -104,6 +104,19 @@ Status: implemented for version 0.8.0
 ## Generated interface
 
 - The interface has a dark theme only and no external runtime dependencies.
+- Page titles and entity navigation use the selected domain's creator/project
+  terms rather than the input folder name or a separate catalog title. The
+  fixed top-left Directory Gallery brand links to `index.html`. Defaults are
+  `creator/creators` and `project/projects`; the plural project label titles
+  `index.html`, and the plural creator label titles `creators.html`.
+- `--domain` selects a fixed terminology preset: `generic` is
+  creator/creators and project/projects; `book` is author/authors and book/books;
+  `film` is director/directors and movie/movies; `music` is artist/artists and
+  album/albums; `model` is model/models and scene/scenes. The preset affects
+  generated headings, breadcrumbs, counts, search text, empty states,
+  accessibility labels, browser titles, and client-rendered content. Generated
+  filenames and URLs remain generic. It does not change discovery, media
+  classification, or supported formats. Collaboration sections keep **Members**.
 - `index.html` is always the catalog. Its default All projects view shows a
   cover, title, and creator grid. The By creator switch stacks creators
   vertically, with each creator's projects in a horizontal row.
@@ -191,7 +204,8 @@ Status: implemented for version 0.8.0
 - The reserved creator child `meta` is not a project and can be excluded.
 - Empty inline patterns are rejected. No `.gitignore` or `.galleryignore`
   is read automatically.
-- `--title TEXT` overrides the catalog title.
+- `--domain {generic,book,film,music,model}` selects display terminology;
+  `generic` is the default.
 - `--no-creator-grid` omits the separate `creators.html` portrait grid.
 - `--link-collaborations` enables inferred cross-links for creator names using
   the literal ` & ` separator.

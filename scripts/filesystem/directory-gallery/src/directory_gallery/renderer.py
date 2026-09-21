@@ -17,6 +17,7 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 from urllib.parse import quote
 
 from .collaborations import collaboration_members
+from .labels import DisplayLabels
 from .models import CatalogWarning, Creator, MediaGroup, MediaItem, Project
 from .output import write_text_atomic
 from .patterns import ExclusionRules
@@ -220,21 +221,24 @@ def _artwork(
     )
 
 
-def _navigation(output: Path, page: Path, active: str, creator_grid: bool) -> str:
+def _navigation(
+    output: Path, page: Path, active: str, creator_grid: bool, labels: DisplayLabels
+) -> str:
     index_href = html.escape(_href(output / "index.html", page), quote=True)
-    catalog_class = "current" if active == "catalog" else ""
+    projects_class = "current" if active == "projects" else ""
     creators_link = ""
     if creator_grid:
         creators_href = html.escape(_href(output / "creators.html", page), quote=True)
         creators_class = "current" if active == "creators" else ""
         creators_link = (
-            f'<a class="{creators_class}" href="{creators_href}">Creators</a>'
+            f'<a class="{creators_class}" href="{creators_href}">'
+            f'{html.escape(labels.creator.heading)}</a>'
         )
     return f"""
 <nav class="site-nav" aria-label="Primary navigation">
   <a class="site-brand" href="{index_href}">Directory Gallery</a>
   <div class="site-nav-links">
-    <a class="{catalog_class}" href="{index_href}">Catalog</a>
+    <a class="{projects_class}" href="{index_href}">{html.escape(labels.project.heading)}</a>
     {creators_link}
   </div>
 </nav>""".strip()
@@ -273,7 +277,12 @@ def _document(
     content: str,
     body_class: str,
     creator_grid: bool,
+    labels: DisplayLabels,
 ) -> str:
+    labels_data = {
+        "creator": {"singular": labels.creator.singular, "plural": labels.creator.plural},
+        "project": {"singular": labels.project.singular, "plural": labels.project.plural},
+    }
     return Template(_resource_text("index.html")).substitute(
         title_attribute=html.escape(title, quote=True),
         stylesheet=html.escape(
@@ -283,10 +292,11 @@ def _document(
             _asset_href("assets/directory-gallery.js", output, page), quote=True
         ),
         body_class=html.escape(body_class, quote=True),
-        navigation=_navigation(output, page, active, creator_grid),
+        navigation=_navigation(output, page, active, creator_grid, labels),
         header=header,
         content=content,
         lightbox=_lightbox(),
+        labels_data=_json_data(labels_data),
     )
 
 
@@ -297,7 +307,6 @@ def _count_label(value: int, singular: str) -> str:
 def _overview_header(title: str, summary: str, search_label: str) -> str:
     return f"""
 <header class="page-header overview-header">
-  <p class="eyebrow">Directory gallery</p>
   <h1>{html.escape(title)}</h1>
   <p class="summary">{summary}</p>
   <div class="controls" role="search">
@@ -373,7 +382,9 @@ def _alphabet_markup(initials: Iterable[str]) -> str:
     return '<nav class="alphabet" aria-label="Filter by initial">' + "".join(buttons) + "</nav>"
 
 
-def _creator_grid_content(items: List[Dict[str, object]]) -> str:
+def _creator_grid_content(
+    items: List[Dict[str, object]], labels: DisplayLabels
+) -> str:
     initials = (_initial(str(item["title"])) for item in items)
     return (
         _alphabet_markup(initials)
@@ -382,9 +393,9 @@ def _creator_grid_content(items: List[Dict[str, object]]) -> str:
         + '<button type="button" data-page-previous>Previous</button>'
         + '<span data-page-status></span>'
         + '<button type="button" data-page-next>Next</button></nav>'
-        + '<p class="empty-state" id="no-results" hidden>No matching creators.</p>'
+        + f'<p class="empty-state" id="no-results" hidden>No matching {html.escape(labels.creator.plural)}.</p>'
         + f'<script type="application/json" id="overview-data">{_json_data(items)}</script>'
-        + '<noscript><p class="empty-state">JavaScript is required to browse this catalog.</p></noscript>'
+        + '<noscript><p class="empty-state">JavaScript is required to browse this page.</p></noscript>'
     )
 
 
@@ -502,7 +513,7 @@ def _warnings_markup(warnings: WarningLog) -> str:
         )
     return (
         '<details class="warnings">'
-        f"<summary>{_count_label(warnings.total_count, 'catalog notice')}</summary>"
+        f"<summary>{_count_label(warnings.total_count, 'notice')}</summary>"
         f"<ul>{entries}</ul></details>"
     )
 
@@ -547,17 +558,18 @@ def _render_project(
     members: Sequence[MemberSummary],
     creator_grid: bool,
     exclusions: ExclusionRules,
+    labels: DisplayLabels,
 ) -> str:
     artwork = _artwork(
         cover, "cover", project.name, f"Cover for {project.name}", output, page
     )
     breadcrumb = (
-        f'<a href="{html.escape(_href(output / "index.html", page), quote=True)}">Catalog</a>'
+        f'<a href="{html.escape(_href(output / "index.html", page), quote=True)}">{html.escape(labels.project.heading)}</a>'
         f'<span aria-hidden="true">/</span><a href="{html.escape(_href(creator_page, page), quote=True)}">{html.escape(creator.name)}</a>'
         f'<span aria-hidden="true">/</span><span>{html.escape(project.name)}</span>'
     )
     header = _detail_header(
-        "Project", project.name, creator.name, artwork, "cover", breadcrumb,
+        labels.project.detail_heading, project.name, creator.name, artwork, "cover", breadcrumb,
         _member_markup(members, output, page),
     )
     readme = render_readme(project.readme, project.path, page, warnings, exclusions)
@@ -568,11 +580,12 @@ def _render_project(
         output,
         page,
         f"{project.name} — {creator.name}",
-        "catalog",
+        "projects",
         header,
         _readme_markup(readme) + rows,
         "detail-page project-page",
         creator_grid,
+        labels,
     )
 
 
@@ -582,12 +595,12 @@ def _render_creator(
     members: Sequence[MemberSummary],
     page: Path,
     output: Path,
-    title: str,
     portrait: Optional[str],
     previews: Mapping[Path, Optional[str]],
     warnings: List[CatalogWarning],
     creator_grid: bool,
     exclusions: ExclusionRules,
+    labels: DisplayLabels,
 ) -> str:
     artwork = _artwork(
         portrait,
@@ -599,13 +612,13 @@ def _render_creator(
     )
     breadcrumb = (
         f'<a href="{html.escape(_href(output / "index.html", page), quote=True)}">'
-        'Catalog</a>'
+        f'{html.escape(labels.project.heading)}</a>'
         f'<span aria-hidden="true">/</span><span>{html.escape(creator.name)}</span>'
     )
     header = _detail_header(
-        "Creator",
+        labels.creator.detail_heading,
         creator.name,
-        _count_label(len(projects), "project"),
+        labels.project.count(len(projects)),
         artwork,
         "portrait",
         breadcrumb,
@@ -616,7 +629,7 @@ def _render_creator(
     if projects:
         rows.append(
             _rail(
-                "Projects",
+                labels.project.heading,
                 _project_row_items(projects, output, page),
                 "project",
                 "collaboration-row" if any(project.credit for project in projects) else "",
@@ -625,16 +638,20 @@ def _render_creator(
     rows.append(_media_rows(creator.media, page, output, previews))
     row_markup = "\n".join(row for row in rows if row)
     if not row_markup:
-        row_markup = '<p class="empty-state">No supported media or projects.</p>'
+        row_markup = (
+            '<p class="empty-state">No supported media or '
+            f'{html.escape(labels.project.plural)}.</p>'
+        )
     return _document(
         output,
         page,
-        f"{creator.name} — {title}",
-        "catalog",
+        f"{creator.name} — {labels.creator.heading}",
+        "projects",
         header,
         _readme_markup(readme) + row_markup,
         "detail-page creator-page",
         creator_grid,
+        labels,
     )
 
 
@@ -695,7 +712,8 @@ def _creator_projects(
 
 
 def _creator_grid_items(
-    state: CatalogState, output: Path, page: Path, include_collaborations: bool
+    state: CatalogState, output: Path, page: Path, include_collaborations: bool,
+    labels: DisplayLabels,
 ) -> List[Dict[str, object]]:
     items = []
     for row in state.creators():
@@ -717,7 +735,7 @@ def _creator_grid_items(
                     (character.upper() for character in name if character.isalnum()),
                     "?",
                 ),
-                "meta": _count_label(project_count, "project"),
+                "meta": labels.project.count(project_count),
             }
         )
     return items
@@ -782,7 +800,7 @@ def _catalog_items(
 
 
 def _catalog_content(
-    items: List[Dict[str, object]], empty: str
+    items: List[Dict[str, object]], labels: DisplayLabels
 ) -> str:
     initials = [str(item["initial"]) for item in items]
     initials.extend(
@@ -792,8 +810,8 @@ def _catalog_content(
     )
     return (
         '<div class="overview-view-switch" role="group" aria-label="Overview layout">'
-        '<button type="button" data-catalog-view="creators" aria-pressed="false">By creator</button>'
-        '<button class="current" type="button" data-catalog-view="projects" aria-pressed="true">All projects</button>'
+        f'<button type="button" data-catalog-view="creators" aria-pressed="false">By {html.escape(labels.creator.singular)}</button>'
+        f'<button class="current" type="button" data-catalog-view="projects" aria-pressed="true">All {html.escape(labels.project.plural)}</button>'
         '</div>'
         + '<div data-catalog-alphabet>' + _alphabet_markup(initials) + '</div>'
         + '<div class="grouped-list" data-catalog-creator-list hidden></div>'
@@ -803,19 +821,19 @@ def _catalog_content(
         + '<button type="button" data-catalog-previous>Previous</button>'
         + '<span data-catalog-status></span>'
         + '<button type="button" data-catalog-next>Next</button></nav>'
-        + f'<p class="empty-state" id="no-results" hidden>{html.escape(empty)}</p>'
+        + f'<p class="empty-state" id="no-results" hidden>No matching {html.escape(labels.project.plural)}.</p>'
         + '<script type="application/json" id="catalog-data">'
         + f"{_json_data(items)}</script>"
         + "<noscript><p class=\"empty-state\">"
-        + "JavaScript is required to browse this catalog.</p></noscript>"
+        + "JavaScript is required to browse this page.</p></noscript>"
     )
 
 
 def build_site(
     input_root: Path,
     output: Path,
-    title: str,
     exclusions: ExclusionRules,
+    labels: DisplayLabels,
     creator_grid: bool = True,
     link_collaborations: bool = False,
     quiet: bool = False,
@@ -900,6 +918,7 @@ def build_site(
                     members,
                     creator_grid,
                     exclusions,
+                    labels,
                 )
                 _write_generated(state, output, page, document)
                 relative_page = page.relative_to(output).as_posix()
@@ -923,12 +942,12 @@ def build_site(
                     members,
                     creator_page,
                     output,
-                    title,
                     portrait,
                     creator_previews,
                     warnings,
                     creator_grid,
                     exclusions,
+                    labels,
                 )
                 _write_generated(state, output, creator_page, creator_document)
             state.record_creator(
@@ -950,30 +969,30 @@ def build_site(
                 _member_summaries(state, creator_path, output),
                 creator_page,
                 output,
-                title,
                 portrait_index[creator_path],
                 _prepare_media_previews(creator.media, cache),
                 warnings,
                 creator_grid,
                 exclusions,
+                labels,
             )
             _write_generated(state, output, creator_page, creator_document)
 
         creator_count = len(creators)
         catalog_summary = (
             f'<span id="visible-items">{project_count}</span> '
-            f'<span id="visible-label">{"project" if project_count == 1 else "projects"}</span>'
+            f'<span id="visible-label">{html.escape(labels.project.noun(project_count))}</span>'
             f'<span data-catalog-extra-summary hidden> · '
             f'<span id="visible-projects">{project_count}</span> '
-            f'<span id="visible-project-label">{"project" if project_count == 1 else "projects"}</span>'
+            f'<span id="visible-project-label">{html.escape(labels.project.noun(project_count))}</span>'
             '</span>'
         )
         catalog_items = _catalog_items(state, output, index, link_collaborations)
-        index_content = _catalog_content(
-            catalog_items, "No matching projects."
-        )
+        index_content = _catalog_content(catalog_items, labels)
         index_header = _overview_header(
-            title, catalog_summary, "Search projects and creators"
+            labels.project.heading,
+            catalog_summary,
+            f"Search {labels.project.plural} and {labels.creator.plural}",
         )
         index_content += _warnings_markup(warnings)
         _write_generated(
@@ -983,27 +1002,30 @@ def build_site(
             _document(
                 output,
                 index,
-                title,
-                "catalog",
+                labels.project.heading,
+                "projects",
                 index_header,
                 index_content,
                 "overview-page catalog-overview",
                 creator_grid,
+                labels,
             ),
         )
 
         if creator_grid:
             creators_page = output / "creators.html"
             creator_items = _creator_grid_items(
-                state, output, creators_page, link_collaborations
+                state, output, creators_page, link_collaborations, labels
             )
             creators_summary = (
                 f'<span id="visible-items">{creator_count}</span> '
                 f'<span id="visible-label">'
-                f'{"creator" if creator_count == 1 else "creators"}</span>'
+                f'{html.escape(labels.creator.noun(creator_count))}</span>'
             )
             creators_header = _overview_header(
-                "Creators", creators_summary, "Search creators"
+                labels.creator.heading,
+                creators_summary,
+                f"Search {labels.creator.plural}",
             )
             _write_generated(
                 state,
@@ -1012,12 +1034,13 @@ def build_site(
                 _document(
                     output,
                     creators_page,
-                    f"Creators — {title}",
+                    labels.creator.heading,
                     "creators",
                     creators_header,
-                    _creator_grid_content(creator_items),
+                    _creator_grid_content(creator_items, labels),
                     "overview-page creators-overview",
                     creator_grid,
+                    labels,
                 ),
             )
 

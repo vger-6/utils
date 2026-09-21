@@ -9,6 +9,7 @@ from typing import Optional, Sequence
 
 from . import __version__
 from .errors import UserError
+from .labels import DEFAULT_DOMAIN, DOMAIN_PRESETS
 from .output import prepare_output, resolve_paths
 from .patterns import ExclusionRules, ExclusionSource, load_exclusion_patterns
 from .renderer import build_site
@@ -58,9 +59,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="read ordered exclusion patterns from FILE; repeat as needed",
     )
     parser.add_argument(
-        "--title",
-        metavar="TEXT",
-        help="page title; defaults to the input directory name",
+        "--domain",
+        choices=tuple(DOMAIN_PRESETS),
+        default=DEFAULT_DOMAIN,
+        help="display terminology preset; defaults to generic",
     )
     parser.add_argument(
         "--no-creator-grid",
@@ -87,12 +89,11 @@ def run(arguments: argparse.Namespace) -> int:
     input_root, output = resolve_paths(arguments.input, arguments.output)
     exclusions = ExclusionRules(input_root, patterns)
     prepare_output(output)
-    default_title = input_root.name or str(input_root)
     result = build_site(
         input_root,
         output,
-        arguments.title or default_title,
         exclusions,
+        labels=DOMAIN_PRESETS[arguments.domain],
         creator_grid=arguments.creator_grid,
         link_collaborations=arguments.link_collaborations,
         quiet=arguments.quiet,

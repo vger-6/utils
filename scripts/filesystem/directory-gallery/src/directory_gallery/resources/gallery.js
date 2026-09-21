@@ -11,6 +11,14 @@
     }
   };
 
+  const labels = JSON.parse(document.querySelector("#display-labels").textContent);
+  const noun = (kind, count) =>
+    count === 1 ? labels[kind].singular : labels[kind].plural;
+  const headingLabel = (kind) => {
+    const plural = labels[kind].plural;
+    return plural.charAt(0).toUpperCase() + plural.slice(1);
+  };
+
   const readme = document.querySelector(".readme");
   const readmeBody = readme?.querySelector(".readme-body");
   const readmeToggle = document.querySelector(".readme-toggle");
@@ -133,7 +141,7 @@
       renderPage();
       if (visibleItems) visibleItems.textContent = String(filtered.length);
       if (visibleLabel) {
-        visibleLabel.textContent = filtered.length === 1 ? "creator" : "creators";
+        visibleLabel.textContent = noun("creator", filtered.length);
       }
       if (noResults) noResults.hidden = filtered.length !== 0;
     };
@@ -548,18 +556,18 @@
     const heading = document.createElement("div");
     heading.className = "row-heading";
     const title = document.createElement("h3");
-    title.textContent = "Projects";
+    title.textContent = headingLabel("project");
     const actions = document.createElement("div");
     actions.className = "row-actions";
     const previous = document.createElement("button");
     previous.type = "button";
     previous.dataset.railPrevious = "";
-      previous.setAttribute("aria-label", "Scroll projects left");
+    previous.setAttribute("aria-label", `Scroll ${labels.project.plural} left`);
     previous.textContent = "‹";
     const next = document.createElement("button");
     next.type = "button";
     next.dataset.railNext = "";
-      next.setAttribute("aria-label", "Scroll projects right");
+    next.setAttribute("aria-label", `Scroll ${labels.project.plural} right`);
     next.textContent = "›";
     actions.append(previous, next);
     heading.append(title, actions);
@@ -597,7 +605,7 @@
     title.append(link);
     const meta = document.createElement("p");
     meta.className = "overview-meta";
-    meta.textContent = `${projects.length} ${projects.length === 1 ? "project" : "projects"}`;
+    meta.textContent = `${projects.length} ${noun("project", projects.length)}`;
     copy.append(title, meta);
     header.append(copy);
     section.append(header);
@@ -607,7 +615,7 @@
     } else {
       const empty = document.createElement("p");
       empty.className = "grouped-empty";
-      empty.textContent = "No projects.";
+      empty.textContent = `No ${labels.project.plural}.`;
       section.append(empty);
     }
     return section;
@@ -736,17 +744,16 @@
       const count = view === "projects" ? filteredProjects.length : filteredCreators.length;
       if (visibleItems) visibleItems.textContent = String(count);
       if (visibleLabel) {
-        const singular = view === "projects" ? "project" : "creator";
-        visibleLabel.textContent = count === 1 ? singular : `${singular}s`;
+        visibleLabel.textContent = noun(view === "projects" ? "project" : "creator", count);
       }
       if (visibleProjects) visibleProjects.textContent = String(projectCount);
       if (visibleProjectLabel) {
-        visibleProjectLabel.textContent = projectCount === 1 ? "project" : "projects";
+        visibleProjectLabel.textContent = noun("project", projectCount);
       }
       if (noResults) {
         noResults.textContent = view === "projects"
-          ? "No matching projects."
-          : "No matching creators or projects.";
+          ? `No matching ${labels.project.plural}.`
+          : `No matching ${labels.creator.plural} or ${labels.project.plural}.`;
         noResults.hidden = count !== 0;
       }
     };
@@ -760,8 +767,8 @@
       projectGrid.hidden = view !== "projects";
       if (extraSummary) extraSummary.hidden = view === "projects";
       const label = view === "projects"
-        ? "Search projects and creators"
-        : "Search creators and projects";
+        ? `Search ${labels.project.plural} and ${labels.creator.plural}`
+        : `Search ${labels.creator.plural} and ${labels.project.plural}`;
       search.placeholder = label;
       if (searchLabel) searchLabel.textContent = label;
       catalogViewButtons.forEach((button) => {

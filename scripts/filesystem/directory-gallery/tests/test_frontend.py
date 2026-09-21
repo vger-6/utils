@@ -46,6 +46,47 @@ class FrontendTests(unittest.TestCase):
         self.assertIsNotNone(match, result.stdout[-1000:])
         return json.loads(html.unescape(match.group(1)))
 
+    def test_domain_labels_follow_client_side_view_changes(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            source = temporary / "source"
+            (source / "Alice" / "First").mkdir(parents=True)
+            output = temporary / "site"
+            self.assertEqual(main([
+                str(source), str(output), "--quiet", "--domain", "music",
+            ]), 0)
+
+            index = output / "index.html"
+            probe = '''<pre id="result"></pre><script>
+window.addEventListener("DOMContentLoaded", () => {
+  const summary = () => document.querySelector(".overview-header .summary").innerText.trim();
+  const result = { all: summary() };
+  document.querySelector('[data-catalog-view="creators"]').click();
+  result.byCreator = {
+    summary: summary(),
+    search: document.querySelector("#catalog-search").placeholder,
+    row: document.querySelector(".grouped-project-row h3").textContent,
+    count: document.querySelector(".grouped-creator .overview-meta").textContent,
+  };
+  document.querySelector("#result").textContent = JSON.stringify(result);
+});
+</script>'''
+            index.write_text(
+                index.read_text(encoding="utf-8").replace("</body>", probe + "</body>"),
+                encoding="utf-8",
+            )
+
+            result = self.browser_result(index, temporary / "profile-labels", 1280)
+            self.assertEqual(result, {
+                "all": "1 album",
+                "byCreator": {
+                    "summary": "1 artist · 1 album",
+                    "search": "Search artists and albums",
+                    "row": "Albums",
+                    "count": "1 album",
+                },
+            })
+
     def test_rail_labels_tooltip_and_full_lightbox_title(self):
         name = "An exceptionally long project or media filename that should span far more than three lines in a narrow card " * 3
         rows = []
@@ -82,7 +123,7 @@ class FrontendTests(unittest.TestCase):
         document = f'''<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="{(RESOURCES / 'gallery.css').as_uri()}">
-<body><main class="site-main">{''.join(rows)}
+<body><script type="application/json" id="display-labels">{{"creator":{{"singular":"creator","plural":"creators"}},"project":{{"singular":"project","plural":"projects"}}}}</script><main class="site-main">{''.join(rows)}
 <div class="overview-card" style="width:180px"><span class="overview-title">{html.escape(name)}</span></div>
 <input id="catalog-search" type="search">
 <div data-catalog-creator-list></div>

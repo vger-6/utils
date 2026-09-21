@@ -58,11 +58,28 @@ running from a script:
 directory-gallery INPUT_FOLDER OUTPUT_FOLDER --quiet
 ```
 
-Use a custom catalog title:
+The generated pages use the generic terms *creator* and *project* by default.
+Choose a domain for collection-specific terminology:
 
 ```bash
-directory-gallery INPUT_FOLDER OUTPUT_FOLDER --title "My collection"
+directory-gallery INPUT_FOLDER OUTPUT_FOLDER --domain music
 ```
+
+| Domain | Creator | Project |
+| --- | --- | --- |
+| `generic` (default) | creator / creators | project / projects |
+| `book` | author / authors | book / books |
+| `film` | director / directors | movie / movies |
+| `music` | artist / artists | album / albums |
+| `model` | model / models | scene / scenes |
+
+The main overview uses the plural project term (such as **Albums**), and the
+optional creator grid uses the plural creator term (such as **Artists**). Detail
+pages use their directory names. The input folder name is not used as a page
+title. Collaboration sections retain the **Members** label. Domains change
+display terminology only: they do not alter scanning, supported files, source
+folders, generated filenames, or URLs. The fixed **Directory Gallery** brand
+at the top left links back to the main overview.
 
 `index.html` is always a single catalog. Its default **All projects** view
 shows a cover grid; **By creator** stacks creators vertically with their

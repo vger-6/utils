@@ -62,6 +62,80 @@ def rail_data(document: str) -> list[list[dict]]:
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_domain_changes_display_only_not_discovered_content(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            source = temporary / "source"
+            project = source / "Creator" / "Project"
+            project.mkdir(parents=True)
+            (project / "track.mp3").touch()
+            (project / "ignored.txt").touch()
+            original_entries = {path.relative_to(source) for path in source.rglob("*")}
+            catalogs = []
+            media_titles = []
+
+            for domain in ("generic", "book", "film", "music", "model"):
+                output = temporary / f"site-{domain}"
+                self.assertEqual(
+                    main([str(source), str(output), "--domain", domain, "--quiet"]),
+                    0,
+                )
+                index = (output / "index.html").read_text(encoding="utf-8")
+                detail = generated_page(output, "projects").read_text(encoding="utf-8")
+                catalogs.append(embedded_data(index, 'id="catalog-data"'))
+                media_titles.append([
+                    item["title"] for row in rail_data(detail) for item in row
+                ])
+
+            self.assertTrue(all(catalog == catalogs[0] for catalog in catalogs))
+            self.assertEqual(media_titles, [["track.mp3"]] * 5)
+            self.assertEqual(
+                {path.relative_to(source) for path in source.rglob("*")},
+                original_entries,
+            )
+
+    def test_domain_preset_covers_overviews_details_and_plural_forms(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            source = temporary / "Input folder name"
+            (source / "Alice" / "First").mkdir(parents=True)
+            (source / "Bob").mkdir()
+            output = temporary / "site"
+
+            self.assertEqual(main([
+                str(source), str(output), "--quiet", "--domain", "film",
+            ]), 0)
+
+            index = (output / "index.html").read_text(encoding="utf-8")
+            grid = (output / "creators.html").read_text(encoding="utf-8")
+            alice = next(
+                page.read_text(encoding="utf-8")
+                for page in (output / "creators").glob("*.html")
+                if "<h1>Alice</h1>" in page.read_text(encoding="utf-8")
+            )
+            project = generated_page(output, "projects").read_text(encoding="utf-8")
+
+            self.assertIn("<title>Movies</title>", index)
+            self.assertIn("<h1>Movies</h1>", index)
+            self.assertIn(">By director</button>", index)
+            self.assertIn(">All movies</button>", index)
+            self.assertIn("Search movies and directors", index)
+            self.assertIn('"singular":"director","plural":"directors"', index)
+            self.assertIn("<title>Directors</title>", grid)
+            self.assertIn("<h1>Directors</h1>", grid)
+            self.assertIn("Search directors", grid)
+            self.assertEqual([item["meta"] for item in embedded_data(grid)], ["1 movie", "0 movies"])
+            self.assertIn("<p class=\"eyebrow\">Director</p>", alice)
+            self.assertIn("<p class=\"summary\">1 movie</p>", alice)
+            self.assertIn(">Movies</h2>", alice)
+            self.assertIn("<p class=\"eyebrow\">Movie</p>", project)
+            self.assertIn(">Movies</a>", project)
+            for document in (index, grid, alice, project):
+                self.assertNotIn("Input folder name", document)
+                self.assertNotIn(">Catalog</a>", document)
+                self.assertIn('class="site-brand"', document)
+                self.assertIn(">Directory Gallery</a>", document)
+
     def test_builds_overviews_details_markdown_previews_and_media_rows(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)
@@ -89,7 +163,7 @@ class IntegrationTests(unittest.TestCase):
             )
             output = temporary / "site"
 
-            result = main([str(source), str(output), "--title", "Things <&> Projects"])
+            result = main([str(source), str(output)])
 
             self.assertEqual(result, 0)
             index = (output / "index.html").read_text(encoding="utf-8")
@@ -99,7 +173,9 @@ class IntegrationTests(unittest.TestCase):
             creator_html = creator_page.read_text(encoding="utf-8")
             project_html = project_page.read_text(encoding="utf-8")
 
-            self.assertIn("Things &lt;&amp;&gt; Projects", index)
+            self.assertIn("<title>Projects</title>", index)
+            self.assertIn("<h1>Projects</h1>", index)
+            self.assertIn(">Directory Gallery</a>", index)
             creator_items = embedded_data(creators_grid)
             catalog_items = embedded_data(index, 'id="catalog-data"')
             project_items = catalog_items[0]["projects"]
@@ -478,9 +554,9 @@ class IntegrationTests(unittest.TestCase):
             self.assertIn('data-catalog-view="projects" aria-pressed="true"', index)
             self.assertIn("data-catalog-creator-list hidden", index)
             self.assertIn("data-catalog-project-grid", index)
-            self.assertIn(">Catalog</a>", index)
+            self.assertIn(">Projects</a>", index)
             self.assertIn(">Creators</a>", index)
-            self.assertNotIn(">Projects</a>", index)
+            self.assertNotIn(">Catalog</a>", index)
             self.assertFalse((output / "projects.html").exists())
             self.assertTrue((output / "creators.html").exists())
             self.assertEqual(len(list((output / "creators").glob("*.html"))), 2)
@@ -488,7 +564,7 @@ class IntegrationTests(unittest.TestCase):
 
             project_detail = next((output / "projects").glob("*.html"))
             detail_html = project_detail.read_text(encoding="utf-8")
-            self.assertIn(">Catalog</a>", detail_html)
+            self.assertIn(">Projects</a>", detail_html)
             self.assertNotIn('href="../projects.html">Projects</a>', detail_html)
 
     def test_opt_out_removes_and_restores_creator_grid(self):
@@ -514,7 +590,7 @@ class IntegrationTests(unittest.TestCase):
             creator_detail = generated_page(output, "creators").read_text(
                 encoding="utf-8"
             )
-            self.assertIn(">Catalog</a>", creator_detail)
+            self.assertIn(">Projects</a>", creator_detail)
             self.assertNotIn(">Creators</a>", creator_detail)
 
             self.assertEqual(main([str(source), str(output), "--quiet"]), 0)
@@ -602,7 +678,7 @@ class IntegrationTests(unittest.TestCase):
             )
             self.assertIn("data-catalog-pagination", index_html)
             self.assertNotIn('class="overview-card', index_html)
-            self.assertIn("208 catalog notices", index_html)
+            self.assertIn("208 notices", index_html)
             self.assertIn("8 additional notices", index_html)
             self.assertFalse((output / "projects.html").exists())
 
