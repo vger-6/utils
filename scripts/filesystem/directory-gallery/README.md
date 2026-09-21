@@ -242,9 +242,9 @@ previews are updated incrementally using source paths, sizes, and modification
 times. Preview files are split across two levels of hash-prefix directories so
 no single cache directory becomes excessively large.
 
-Outputs made by version 0.2 are upgraded automatically on the next successful
-build. Existing valid previews are moved into the sharded layout and reused;
-the source collection is not touched.
+Only outputs using the current manifest format are accepted. To replace an
+older catalog, generate into a new empty output directory; the source
+collection is not touched.
 
 The output must be empty or already managed by Directory Gallery. Input and
 output trees may not overlap. Stale pages and thumbnails are removed only when

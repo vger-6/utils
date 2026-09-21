@@ -13,7 +13,6 @@ from .errors import UserError
 
 MANIFEST_NAME = ".directory-gallery-manifest.json"
 MANIFEST_FORMAT = 2
-LEGACY_MANIFEST_FORMAT = 1
 MANIFEST_GENERATOR = "directory-gallery"
 DATABASE_NAME = ".directory-gallery-cache.sqlite3"
 
@@ -73,17 +72,13 @@ def prepare_output(output: Path) -> None:
                 ) from error
             if (
                 not isinstance(manifest, dict)
-                or manifest.get("format")
-                not in {LEGACY_MANIFEST_FORMAT, MANIFEST_FORMAT}
+                or manifest.get("format") != MANIFEST_FORMAT
                 or manifest.get("generator") != MANIFEST_GENERATOR
             ):
                 raise UserError("output has an incompatible Directory Gallery manifest")
             if (
-                manifest.get("format") == MANIFEST_FORMAT
-                and (
-                    not (output / DATABASE_NAME).is_file()
-                    or (output / DATABASE_NAME).is_symlink()
-                )
+                not (output / DATABASE_NAME).is_file()
+                or (output / DATABASE_NAME).is_symlink()
             ):
                 raise UserError("output is missing its Directory Gallery cache database")
     else:

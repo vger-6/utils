@@ -40,20 +40,12 @@ class OutputTests(unittest.TestCase):
 
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "unchanged")
 
-    def test_empty_and_managed_outputs_are_accepted(self):
+    def test_empty_and_current_outputs_are_accepted(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             empty = root / "empty"
             empty.mkdir()
             prepare_output(empty)
-
-            managed = root / "managed"
-            managed.mkdir()
-            (managed / MANIFEST_NAME).write_text(
-                '{"format": 1, "generator": "directory-gallery"}',
-                encoding="utf-8",
-            )
-            prepare_output(managed)
 
             current = root / "current"
             current.mkdir()
@@ -63,6 +55,20 @@ class OutputTests(unittest.TestCase):
             )
             (current / DATABASE_NAME).touch()
             prepare_output(current)
+
+    def test_older_manifest_is_rejected_without_modifying_output(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "output"
+            output.mkdir()
+            manifest = output / MANIFEST_NAME
+            original = '{"format": 1, "generator": "directory-gallery"}'
+            manifest.write_text(original, encoding="utf-8")
+
+            with self.assertRaises(UserError):
+                prepare_output(output)
+
+            self.assertEqual(manifest.read_text(encoding="utf-8"), original)
+            self.assertFalse((output / DATABASE_NAME).exists())
 
     def test_current_manifest_requires_its_cache_database(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

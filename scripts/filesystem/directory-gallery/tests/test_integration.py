@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import json
-import hashlib
 import io
-import os
 import re
 import sqlite3
 import tempfile
@@ -413,53 +411,6 @@ class IntegrationTests(unittest.TestCase):
             self.assertIn("cover-placeholder", project_html)
             self.assertNotIn('class="readme-toggle"', project_html)
             self.assertIn("Could not create thumbnail", index)
-
-    def test_migrates_legacy_manifest_and_flat_thumbnail_without_regeneration(self):
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            temporary = Path(temporary_directory)
-            source = temporary / "Source"
-            cover = source / "Creator" / "Project" / "cover.jpg"
-            make_image(cover, "purple")
-            output = temporary / "site"
-            (output / "thumbnails").mkdir(parents=True)
-            source_key = os.fspath(cover.resolve())
-            digest = hashlib.sha256(os.fsencode(source_key)).hexdigest()[:24]
-            legacy_thumbnail = output / "thumbnails" / f"{digest}.jpg"
-            make_image(legacy_thumbnail, "purple")
-            source_stat = cover.stat()
-            (output / MANIFEST_NAME).write_text(
-                json.dumps(
-                    {
-                        "format": 1,
-                        "generator": "directory-gallery",
-                        "generated_files": [],
-                        "thumbnails": {
-                            source_key: {
-                                "kind": "image",
-                                "file": legacy_thumbnail.name,
-                                "mtime_ns": source_stat.st_mtime_ns,
-                                "size": source_stat.st_size,
-                            }
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            self.assertEqual(main([str(source), str(output), "--quiet"]), 0)
-
-            manifest = json.loads((output / MANIFEST_NAME).read_text(encoding="utf-8"))
-            migrated = output / "thumbnails" / digest[:2] / digest[2:4] / f"{digest}.jpg"
-            self.assertEqual(manifest["format"], MANIFEST_FORMAT)
-            self.assertFalse(legacy_thumbnail.exists())
-            self.assertTrue(migrated.is_file())
-            with sqlite3.connect(output / DATABASE_NAME) as database:
-                row = database.execute(
-                    "SELECT file, last_seen FROM previews WHERE source_key = ?",
-                    (source_key,),
-                ).fetchone()
-            self.assertEqual(row[0], migrated.relative_to(output).as_posix())
-            self.assertGreater(row[1], 0)
 
     def test_reuses_unchanged_previews_from_sqlite_cache(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

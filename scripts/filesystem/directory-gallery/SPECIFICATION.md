@@ -1,6 +1,6 @@
 # Directory Gallery specification
 
-Status: implemented for version 0.7.0
+Status: implemented for version 0.8.0
 
 ## Source model
 
@@ -197,6 +197,8 @@ Status: implemented for version 0.7.0
 
 ## Output safety
 
+- During active development, older output formats receive no migrations or
+  compatibility shims; rebuild them in a new empty output directory.
 - Input and output are resolved before generation and must be disjoint trees.
 - The output must not be a symbolic link.
 - A missing output and its parents are created; an empty output is accepted.
@@ -205,8 +207,7 @@ Status: implemented for version 0.7.0
 - A small format-2 manifest identifies the generator, input, and SQLite state
   database. The database records overview pages, hashed creator/project pages,
   assets, and previews.
-- A format-1 manifest from version 0.2 is migrated automatically. Valid flat
-  previews are moved into the sharded layout and retained in the database.
+- Older manifest formats are rejected without modifying the existing output.
 - Stale generated pages are removed only when recorded by the state database
   and matching a strict generator-owned path pattern.
 - Stale previews are removed only when recorded by the state database and

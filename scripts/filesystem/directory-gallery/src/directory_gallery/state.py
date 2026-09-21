@@ -14,7 +14,6 @@ from .errors import UserError
 from .models import CatalogWarning
 from .output import (
     DATABASE_NAME,
-    LEGACY_MANIFEST_FORMAT,
     MANIFEST_FORMAT,
     MANIFEST_GENERATOR,
     MANIFEST_NAME,
@@ -23,7 +22,6 @@ from .output import (
 
 
 SCHEMA_VERSION = 1
-LEGACY_THUMBNAIL = re.compile(r"^[0-9a-f]{24}\.jpg$")
 GENERATED_FILE = re.compile(
     r"^(?:index\.html|projects\.html|"
     r"assets/directory-gallery\.(?:css|js)|"
@@ -64,7 +62,6 @@ class CatalogState:
             self._create_schema()
             self.run_id = self._next_run_id()
             self._mutations = 0
-            self._migrate_legacy_manifest()
             if not self.manifest_path.exists():
                 self._write_manifest()
         except (sqlite3.Error, ValueError) as error:
@@ -144,64 +141,6 @@ class CatalogState:
         )
         self.connection.commit()
         return run_id
-
-    def _migrate_legacy_manifest(self) -> None:
-        if not self.manifest_path.is_file():
-            return
-        try:
-            manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, json.JSONDecodeError):
-            return
-        if not isinstance(manifest, dict) or manifest.get("format") != LEGACY_MANIFEST_FORMAT:
-            return
-        if self.connection.execute("SELECT 1 FROM previews LIMIT 1").fetchone():
-            return
-
-        thumbnails = manifest.get("thumbnails", {})
-        if isinstance(thumbnails, dict):
-            for source_key, record in thumbnails.items():
-                if not isinstance(source_key, str) or not isinstance(record, dict):
-                    continue
-                filename = record.get("file")
-                mtime_ns = record.get("mtime_ns")
-                size = record.get("size")
-                if (
-                    not isinstance(filename, str)
-                    or not LEGACY_THUMBNAIL.fullmatch(filename)
-                    or not isinstance(mtime_ns, int)
-                    or not isinstance(size, int)
-                ):
-                    continue
-                kind = record.get("kind")
-                if kind not in {"image", "pdf"}:
-                    kind = "pdf" if source_key.startswith("pdf:") else "image"
-                relative = f"thumbnails/{filename[:2]}/{filename[2:4]}/{filename}"
-                old_path = self.output / "thumbnails" / filename
-                new_path = self.output / relative
-                if old_path.is_file() and not old_path.is_symlink():
-                    new_path.parent.mkdir(parents=True, exist_ok=True)
-                    if new_path.exists():
-                        old_path.unlink()
-                    else:
-                        os.replace(old_path, new_path)
-                self.connection.execute(
-                    """
-                    INSERT OR REPLACE INTO previews
-                        (source_key, kind, file, mtime_ns, size, last_seen)
-                    VALUES (?, ?, ?, ?, ?, 0)
-                    """,
-                    (source_key, kind, relative, mtime_ns, size),
-                )
-
-        generated = manifest.get("generated_files", [])
-        if isinstance(generated, list):
-            for filename in generated:
-                if isinstance(filename, str) and GENERATED_FILE.fullmatch(filename):
-                    self.connection.execute(
-                        "INSERT OR REPLACE INTO generated_files(path, last_seen) VALUES(?, 0)",
-                        (filename,),
-                    )
-        self.connection.commit()
 
     def _touch(self) -> None:
         self._mutations += 1
