@@ -204,25 +204,22 @@ def _artwork(
     )
 
 
-def _navigation(output: Path, page: Path, active: str, overview: str) -> str:
+def _navigation(output: Path, page: Path, active: str, creator_grid: bool) -> str:
     index_href = html.escape(_href(output / "index.html", page), quote=True)
-    if overview == "grouped":
-        return f"""
-<nav class="site-nav" aria-label="Primary navigation">
-  <a class="site-brand" href="{index_href}">Directory Gallery</a>
-  <div class="site-nav-links">
-    <a class="current" href="{index_href}">Overview</a>
-  </div>
-</nav>""".strip()
-
-    creators_class = "current" if active == "creators" else ""
-    projects_class = "current" if active == "projects" else ""
+    catalog_class = "current" if active == "catalog" else ""
+    creators_link = ""
+    if creator_grid:
+        creators_href = html.escape(_href(output / "creators.html", page), quote=True)
+        creators_class = "current" if active == "creators" else ""
+        creators_link = (
+            f'<a class="{creators_class}" href="{creators_href}">Creators</a>'
+        )
     return f"""
 <nav class="site-nav" aria-label="Primary navigation">
   <a class="site-brand" href="{index_href}">Directory Gallery</a>
   <div class="site-nav-links">
-    <a class="{creators_class}" href="{index_href}">Creators</a>
-    <a class="{projects_class}" href="{html.escape(_href(output / 'projects.html', page), quote=True)}">Projects</a>
+    <a class="{catalog_class}" href="{index_href}">Catalog</a>
+    {creators_link}
   </div>
 </nav>""".strip()
 
@@ -259,7 +256,7 @@ def _document(
     header: str,
     content: str,
     body_class: str,
-    overview: str,
+    creator_grid: bool,
 ) -> str:
     return Template(_resource_text("index.html")).substitute(
         title_attribute=html.escape(title, quote=True),
@@ -270,7 +267,7 @@ def _document(
             _asset_href("assets/directory-gallery.js", output, page), quote=True
         ),
         body_class=html.escape(body_class, quote=True),
-        navigation=_navigation(output, page, active, overview),
+        navigation=_navigation(output, page, active, creator_grid),
         header=header,
         content=content,
         lightbox=_lightbox(),
@@ -331,16 +328,16 @@ def _alphabet_markup(initials: Iterable[str]) -> str:
     return '<nav class="alphabet" aria-label="Filter by initial">' + "".join(buttons) + "</nav>"
 
 
-def _overview_content(items: List[Dict[str, object]], kind: str, empty: str) -> str:
+def _creator_grid_content(items: List[Dict[str, object]]) -> str:
     initials = (_initial(str(item["title"])) for item in items)
     return (
         _alphabet_markup(initials)
-        + f'<div class="overview-grid" data-overview-grid data-card-kind="{kind}"></div>'
+        + '<div class="overview-grid" data-overview-grid></div>'
         + '<nav class="pagination" data-pagination aria-label="Overview pages" hidden>'
         + '<button type="button" data-page-previous>Previous</button>'
         + '<span data-page-status></span>'
         + '<button type="button" data-page-next>Next</button></nav>'
-        + f'<p class="empty-state" id="no-results" hidden>{html.escape(empty)}</p>'
+        + '<p class="empty-state" id="no-results" hidden>No matching creators.</p>'
         + f'<script type="application/json" id="overview-data">{_json_data(items)}</script>'
         + '<noscript><p class="empty-state">JavaScript is required to browse this catalog.</p></noscript>'
     )
@@ -493,22 +490,17 @@ def _render_project(
     creator_page: Path,
     page: Path,
     output: Path,
-    title: str,
     cover: Optional[str],
     previews: Mapping[Path, Optional[str]],
     warnings: List[CatalogWarning],
-    overview: str,
+    creator_grid: bool,
     exclusions: ExclusionRules,
 ) -> str:
     artwork = _artwork(
         cover, "cover", project.name, f"Cover for {project.name}", output, page
     )
-    overview_page = output / (
-        "projects.html" if overview == "separate" else "index.html"
-    )
-    overview_label = "Projects" if overview == "separate" else "Overview"
     breadcrumb = (
-        f'<a href="{html.escape(_href(overview_page, page), quote=True)}">{overview_label}</a>'
+        f'<a href="{html.escape(_href(output / "index.html", page), quote=True)}">Catalog</a>'
         f'<span aria-hidden="true">/</span><a href="{html.escape(_href(creator_page, page), quote=True)}">{html.escape(creator.name)}</a>'
         f'<span aria-hidden="true">/</span><span>{html.escape(project.name)}</span>'
     )
@@ -523,11 +515,11 @@ def _render_project(
         output,
         page,
         f"{project.name} — {creator.name}",
-        "projects",
+        "catalog",
         header,
         _readme_markup(readme) + rows,
         "detail-page project-page",
-        overview,
+        creator_grid,
     )
 
 
@@ -540,7 +532,7 @@ def _render_creator(
     portrait: Optional[str],
     previews: Mapping[Path, Optional[str]],
     warnings: List[CatalogWarning],
-    overview: str,
+    creator_grid: bool,
     exclusions: ExclusionRules,
 ) -> str:
     artwork = _artwork(
@@ -553,7 +545,7 @@ def _render_creator(
     )
     breadcrumb = (
         f'<a href="{html.escape(_href(output / "index.html", page), quote=True)}">'
-        f'{"Creators" if overview == "separate" else "Overview"}</a>'
+        'Catalog</a>'
         f'<span aria-hidden="true">/</span><span>{html.escape(creator.name)}</span>'
     )
     header = _detail_header(
@@ -578,15 +570,15 @@ def _render_creator(
         output,
         page,
         f"{creator.name} — {title}",
-        "creators",
+        "catalog",
         header,
         _readme_markup(readme) + row_markup,
         "detail-page creator-page",
-        overview,
+        creator_grid,
     )
 
 
-def _creator_overview_items(
+def _creator_grid_items(
     state: CatalogState, output: Path, page: Path
 ) -> List[Dict[str, object]]:
     items = []
@@ -610,32 +602,7 @@ def _creator_overview_items(
     return items
 
 
-def _project_overview_items(
-    state: CatalogState, output: Path, page: Path
-) -> List[Dict[str, object]]:
-    items = []
-    for row in state.projects():
-        name = str(row["name"])
-        creator = str(row["creator_name"])
-        cover = row["cover"]
-        items.append(
-            {
-                "title": name,
-                "search": f"{name} {creator}".casefold(),
-                "initial": _initial(name),
-                "href": _href(output / str(row["page"]), page),
-                "image": _asset_href(str(cover), output, page) if cover else None,
-                "placeholder": next(
-                    (character.upper() for character in name if character.isalnum()),
-                    "?",
-                ),
-                "meta": creator,
-            }
-        )
-    return items
-
-
-def _grouped_overview_items(
+def _catalog_items(
     state: CatalogState, output: Path, page: Path
 ) -> List[Dict[str, object]]:
     items: List[Dict[str, object]] = []
@@ -651,6 +618,7 @@ def _grouped_overview_items(
                     "kind": "project",
                     "title": project_name,
                     "search": project_name.casefold(),
+                    "initial": _initial(project_name),
                     "href": _href(output / str(project_row["page"]), page),
                     "image": (
                         _asset_href(str(cover), output, page) if cover else None
@@ -674,26 +642,40 @@ def _grouped_overview_items(
                 "image": (
                     _asset_href(str(portrait), output, page) if portrait else None
                 ),
+                "placeholder": next(
+                    (character.upper() for character in creator_name if character.isalnum()),
+                    "?",
+                ),
                 "projects": projects,
             }
         )
     return items
 
 
-def _grouped_overview_content(
+def _catalog_content(
     items: List[Dict[str, object]], empty: str
 ) -> str:
-    initials = (_initial(str(item["title"])) for item in items)
+    initials = [str(item["initial"]) for item in items]
+    initials.extend(
+        str(project["initial"])
+        for item in items
+        for project in item["projects"]
+    )
     return (
-        _alphabet_markup(initials)
-        + '<div class="grouped-list" data-grouped-list></div>'
-        + '<nav class="pagination" data-grouped-pagination '
+        '<div class="overview-view-switch" role="group" aria-label="Overview layout">'
+        '<button type="button" data-catalog-view="creators" aria-pressed="false">By creator</button>'
+        '<button class="current" type="button" data-catalog-view="projects" aria-pressed="true">All projects</button>'
+        '</div>'
+        + '<div data-catalog-alphabet>' + _alphabet_markup(initials) + '</div>'
+        + '<div class="grouped-list" data-catalog-creator-list hidden></div>'
+        + '<div class="overview-grid" data-catalog-project-grid></div>'
+        + '<nav class="pagination" data-catalog-pagination '
         + 'aria-label="Overview pages" hidden>'
-        + '<button type="button" data-grouped-previous>Previous</button>'
-        + '<span data-grouped-status></span>'
-        + '<button type="button" data-grouped-next>Next</button></nav>'
+        + '<button type="button" data-catalog-previous>Previous</button>'
+        + '<span data-catalog-status></span>'
+        + '<button type="button" data-catalog-next>Next</button></nav>'
         + f'<p class="empty-state" id="no-results" hidden>{html.escape(empty)}</p>'
-        + '<script type="application/json" id="grouped-data">'
+        + '<script type="application/json" id="catalog-data">'
         + f"{_json_data(items)}</script>"
         + "<noscript><p class=\"empty-state\">"
         + "JavaScript is required to browse this catalog.</p></noscript>"
@@ -705,11 +687,9 @@ def build_site(
     output: Path,
     title: str,
     exclusions: ExclusionRules,
-    overview: str = "separate",
+    creator_grid: bool = True,
     quiet: bool = False,
 ) -> BuildResult:
-    if overview not in {"separate", "grouped"}:
-        raise ValueError(f"unknown overview mode: {overview}")
     warnings = WarningLog()
     creators = creator_paths(input_root, exclusions)
     progress = ProgressReporter(len(creators), enabled=not quiet)
@@ -749,11 +729,10 @@ def build_site(
                     creator_page,
                     page,
                     output,
-                    title,
                     cover,
                     previews,
                     warnings,
-                    overview,
+                    creator_grid,
                     exclusions,
                 )
                 _write_generated(state, output, page, document)
@@ -778,7 +757,7 @@ def build_site(
                 portrait,
                 creator_previews,
                 warnings,
-                overview,
+                creator_grid,
                 exclusions,
             )
             _write_generated(state, output, creator_page, creator_document)
@@ -793,57 +772,21 @@ def build_site(
             progress.update()
 
         creator_count = len(creators)
-        creator_summary = (
-            f'<span id="visible-items">{creator_count}</span> '
-            f'<span id="visible-label">{"creator" if creator_count == 1 else "creators"}</span> · '
+        catalog_summary = (
+            f'<span id="visible-items">{project_count}</span> '
+            f'<span id="visible-label">{"project" if project_count == 1 else "projects"}</span>'
+            f'<span data-catalog-extra-summary hidden> · '
             f'<span id="visible-projects">{project_count}</span> '
             f'<span id="visible-project-label">{"project" if project_count == 1 else "projects"}</span>'
+            '</span>'
         )
-
-        if overview == "separate":
-            projects_page = output / "projects.html"
-            project_items = _project_overview_items(state, output, projects_page)
-            project_summary = (
-                f'<span id="visible-items">{project_count}</span> '
-                f'<span id="visible-label">'
-                f'{"project" if project_count == 1 else "projects"}</span>'
-            )
-            projects_header = _overview_header(
-                "Projects", project_summary, "Search projects and creators"
-            )
-            projects_content = _overview_content(
-                project_items, "project", "No matching projects."
-            )
-            _write_generated(
-                state,
-                output,
-                projects_page,
-                _document(
-                    output,
-                    projects_page,
-                    f"Projects — {title}",
-                    "projects",
-                    projects_header,
-                    projects_content,
-                    "overview-page projects-overview",
-                    overview,
-                ),
-            )
-            creator_items = _creator_overview_items(state, output, index)
-            index_content = _overview_content(
-                creator_items, "creator", "No matching creators."
-            )
-            search_label = "Search creators"
-            body_class = "overview-page creators-overview"
-        else:
-            grouped_items = _grouped_overview_items(state, output, index)
-            index_content = _grouped_overview_content(
-                grouped_items, "No matching creators or projects."
-            )
-            search_label = "Search creators and projects"
-            body_class = "overview-page grouped-overview"
-
-        index_header = _overview_header(title, creator_summary, search_label)
+        catalog_items = _catalog_items(state, output, index)
+        index_content = _catalog_content(
+            catalog_items, "No matching projects."
+        )
+        index_header = _overview_header(
+            title, catalog_summary, "Search projects and creators"
+        )
         index_content += _warnings_markup(warnings)
         _write_generated(
             state,
@@ -853,13 +796,40 @@ def build_site(
                 output,
                 index,
                 title,
-                "creators",
+                "catalog",
                 index_header,
                 index_content,
-                body_class,
-                overview,
+                "overview-page catalog-overview",
+                creator_grid,
             ),
         )
+
+        if creator_grid:
+            creators_page = output / "creators.html"
+            creator_items = _creator_grid_items(state, output, creators_page)
+            creators_summary = (
+                f'<span id="visible-items">{creator_count}</span> '
+                f'<span id="visible-label">'
+                f'{"creator" if creator_count == 1 else "creators"}</span>'
+            )
+            creators_header = _overview_header(
+                "Creators", creators_summary, "Search creators"
+            )
+            _write_generated(
+                state,
+                output,
+                creators_page,
+                _document(
+                    output,
+                    creators_page,
+                    f"Creators — {title}",
+                    "creators",
+                    creators_header,
+                    _creator_grid_content(creator_items),
+                    "overview-page creators-overview",
+                    creator_grid,
+                ),
+            )
 
         for name in ("gallery.css", "gallery.js"):
             target_name = f"directory-gallery.{name.rsplit('.', 1)[1]}"

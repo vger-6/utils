@@ -6,17 +6,17 @@ from directory_gallery.cli import build_parser
 
 
 class CliTests(unittest.TestCase):
-    def test_overview_defaults_to_separate(self):
+    def test_creator_grid_is_enabled_by_default(self):
         arguments = build_parser().parse_args(["input", "output"])
 
-        self.assertEqual(arguments.overview, "separate")
+        self.assertTrue(arguments.creator_grid)
 
-    def test_grouped_overview_can_be_selected(self):
+    def test_creator_grid_can_be_disabled(self):
         arguments = build_parser().parse_args(
-            ["input", "output", "--overview", "grouped"]
+            ["input", "output", "--no-creator-grid"]
         )
 
-        self.assertEqual(arguments.overview, "grouped")
+        self.assertFalse(arguments.creator_grid)
 
     def test_exclusion_patterns_and_files_keep_command_line_order(self):
         arguments = build_parser().parse_args(

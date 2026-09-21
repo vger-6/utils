@@ -93,19 +93,23 @@ class IntegrationTests(unittest.TestCase):
 
             self.assertEqual(result, 0)
             index = (output / "index.html").read_text(encoding="utf-8")
-            projects = (output / "projects.html").read_text(encoding="utf-8")
+            creators_grid = (output / "creators.html").read_text(encoding="utf-8")
             creator_page = generated_page(output, "creators")
             project_page = generated_page(output, "projects")
             creator_html = creator_page.read_text(encoding="utf-8")
             project_html = project_page.read_text(encoding="utf-8")
 
             self.assertIn("Things &lt;&amp;&gt; Projects", index)
-            creator_items = embedded_data(index)
-            project_items = embedded_data(projects)
+            creator_items = embedded_data(creators_grid)
+            catalog_items = embedded_data(index, 'id="catalog-data"')
+            project_items = catalog_items[0]["projects"]
             self.assertEqual([item["title"] for item in creator_items], ["Creator & Co"])
             self.assertNotIn("First Project", [item["title"] for item in creator_items])
             self.assertEqual([item["title"] for item in project_items], ["First Project"])
-            self.assertEqual(project_items[0]["meta"], "Creator & Co")
+            self.assertEqual(catalog_items[0]["title"], "Creator & Co")
+            self.assertIn('data-catalog-creator-list hidden', index)
+            self.assertIn('data-catalog-project-grid', index)
+            self.assertFalse((output / "projects.html").exists())
             self.assertIn("Biography", creator_html)
             self.assertIn("<strong>Important</strong>", creator_html)
             self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", creator_html)
@@ -201,13 +205,14 @@ class IntegrationTests(unittest.TestCase):
 
             self.assertEqual(result, 0)
             index = (output / "index.html").read_text(encoding="utf-8")
-            projects = (output / "projects.html").read_text(encoding="utf-8")
+            items = embedded_data(index, 'id="catalog-data"')
             self.assertEqual(
-                [item["title"] for item in embedded_data(index)],
+                [item["title"] for item in items],
                 ["Creator A", "Creator B"],
             )
             self.assertEqual(
-                [item["title"] for item in embedded_data(projects)], ["Keep"]
+                [project["title"] for item in items for project in item["projects"]],
+                ["Keep"],
             )
 
     def test_exclude_from_removes_underscore_entries_and_prunes_stale_pages(self):
@@ -266,7 +271,7 @@ class IntegrationTests(unittest.TestCase):
             self.assertIn("invalid exclusion pattern", stderr.getvalue())
             self.assertFalse(output.exists())
 
-    def test_global_project_overview_is_ordered_by_project_title(self):
+    def test_catalog_contains_projects_from_all_creators(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)
             source = temporary / "Source"
@@ -276,13 +281,15 @@ class IntegrationTests(unittest.TestCase):
 
             self.assertEqual(main([str(source), str(output)]), 0)
 
-            projects = (output / "projects.html").read_text(encoding="utf-8")
+            index = (output / "index.html").read_text(encoding="utf-8")
+            items = embedded_data(index, 'id="catalog-data"')
             self.assertEqual(
-                [item["title"] for item in embedded_data(projects)],
-                ["Alpha", "Zulu"],
+                [project["title"] for item in items for project in item["projects"]],
+                ["Zulu", "Alpha"],
             )
+            self.assertFalse((output / "projects.html").exists())
 
-    def test_grouped_overview_stacks_creators_and_projects_without_portrait_placeholders(self):
+    def test_catalog_stacks_creators_and_projects_with_initial_fallback(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)
             source = temporary / "Source"
@@ -294,21 +301,10 @@ class IntegrationTests(unittest.TestCase):
             make_image(creator_b / "Only Project" / "cover.jpg", "blue")
             output = temporary / "site"
 
-            self.assertEqual(
-                main(
-                    [
-                        str(source),
-                        str(output),
-                        "--overview",
-                        "grouped",
-                        "--quiet",
-                    ]
-                ),
-                0,
-            )
+            self.assertEqual(main([str(source), str(output), "--quiet"]), 0)
 
             index = (output / "index.html").read_text(encoding="utf-8")
-            items = embedded_data(index, 'id="grouped-data"')
+            items = embedded_data(index, 'id="catalog-data"')
             self.assertEqual(
                 [item["title"] for item in items], ["Creator A", "Creator B"]
             )
@@ -316,24 +312,32 @@ class IntegrationTests(unittest.TestCase):
                 [project["title"] for project in items[0]["projects"]],
                 ["Alpha", "Zulu"],
             )
+            self.assertEqual(
+                [project["initial"] for project in items[0]["projects"]],
+                ["A", "Z"],
+            )
             self.assertIsNotNone(items[0]["image"])
             self.assertIsNone(items[1]["image"])
-            self.assertIn('class="overview-page grouped-overview"', index)
-            self.assertIn("data-grouped-list", index)
-            self.assertIn(">Overview</a>", index)
-            self.assertNotIn(">Creators</a>", index)
+            self.assertEqual(items[1]["placeholder"], "C")
+            self.assertIn('class="overview-page catalog-overview"', index)
+            self.assertIn('data-catalog-view="creators" aria-pressed="false"', index)
+            self.assertIn('data-catalog-view="projects" aria-pressed="true"', index)
+            self.assertIn("data-catalog-creator-list hidden", index)
+            self.assertIn("data-catalog-project-grid", index)
+            self.assertIn(">Catalog</a>", index)
+            self.assertIn(">Creators</a>", index)
             self.assertNotIn(">Projects</a>", index)
-            self.assertNotIn("portrait-placeholder", index)
             self.assertFalse((output / "projects.html").exists())
+            self.assertTrue((output / "creators.html").exists())
             self.assertEqual(len(list((output / "creators").glob("*.html"))), 2)
             self.assertEqual(len(list((output / "projects").glob("*.html"))), 3)
 
             project_detail = next((output / "projects").glob("*.html"))
             detail_html = project_detail.read_text(encoding="utf-8")
-            self.assertIn(">Overview</a>", detail_html)
+            self.assertIn(">Catalog</a>", detail_html)
             self.assertNotIn('href="../projects.html">Projects</a>', detail_html)
 
-    def test_switching_overview_modes_removes_and_restores_projects_overview(self):
+    def test_opt_out_removes_and_restores_creator_grid(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)
             source = temporary / "Source"
@@ -341,26 +345,28 @@ class IntegrationTests(unittest.TestCase):
             output = temporary / "site"
 
             self.assertEqual(main([str(source), str(output), "--quiet"]), 0)
-            self.assertTrue((output / "projects.html").is_file())
+            self.assertTrue((output / "creators.html").is_file())
 
             self.assertEqual(
-                main(
-                    [
-                        str(source),
-                        str(output),
-                        "--overview",
-                        "grouped",
-                        "--quiet",
-                    ]
-                ),
+                main([str(source), str(output), "--no-creator-grid", "--quiet"]),
                 0,
             )
+            self.assertFalse((output / "creators.html").exists())
             self.assertFalse((output / "projects.html").exists())
+            index = (output / "index.html").read_text(encoding="utf-8")
+            self.assertIn('data-catalog-creator-list hidden', index)
+            self.assertIn('data-catalog-project-grid', index)
+            self.assertNotIn(">Creators</a>", index)
+            creator_detail = generated_page(output, "creators").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn(">Catalog</a>", creator_detail)
+            self.assertNotIn(">Creators</a>", creator_detail)
 
             self.assertEqual(main([str(source), str(output), "--quiet"]), 0)
-            self.assertTrue((output / "projects.html").is_file())
+            self.assertTrue((output / "creators.html").is_file())
 
-    def test_grouped_overview_embeds_large_catalog_without_static_creator_sections(self):
+    def test_catalog_embeds_large_collection_without_static_creator_sections(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)
             source = temporary / "Source"
@@ -374,25 +380,14 @@ class IntegrationTests(unittest.TestCase):
                     project.mkdir(parents=True)
             output = temporary / "site"
 
-            self.assertEqual(
-                main(
-                    [
-                        str(source),
-                        str(output),
-                        "--overview",
-                        "grouped",
-                        "--quiet",
-                    ]
-                ),
-                0,
-            )
+            self.assertEqual(main([str(source), str(output), "--quiet"]), 0)
 
             index = (output / "index.html").read_text(encoding="utf-8")
-            items = embedded_data(index, 'id="grouped-data"')
+            items = embedded_data(index, 'id="catalog-data"')
             self.assertEqual(len(items), 45)
             self.assertTrue(all(len(item["projects"]) == 2 for item in items))
             self.assertNotIn('class="grouped-creator"', index)
-            self.assertIn("data-grouped-pagination", index)
+            self.assertIn("data-catalog-pagination", index)
 
     def test_unreadable_artwork_falls_back_to_placeholder(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -446,15 +441,16 @@ class IntegrationTests(unittest.TestCase):
 
             self.assertEqual(main([str(source), str(output), "--quiet"]), 0)
 
-            projects_html = (output / "projects.html").read_text(encoding="utf-8")
-            project_items = embedded_data(projects_html)
-            self.assertEqual(len(project_items), 206)
-            self.assertIn("data-pagination", projects_html)
-            self.assertNotIn('class="overview-card', projects_html)
-
             index_html = (output / "index.html").read_text(encoding="utf-8")
+            catalog_items = embedded_data(index_html, 'id="catalog-data"')
+            self.assertEqual(
+                sum(len(item["projects"]) for item in catalog_items), 206
+            )
+            self.assertIn("data-catalog-pagination", index_html)
+            self.assertNotIn('class="overview-card', index_html)
             self.assertIn("208 catalog notices", index_html)
             self.assertIn("8 additional notices", index_html)
+            self.assertFalse((output / "projects.html").exists())
 
             detail_pages = (output / "projects").glob("*.html")
             album_html = next(

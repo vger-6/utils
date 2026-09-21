@@ -16,7 +16,7 @@ Status: implemented for version 0.8.0
 
 ## Reserved creator content
 
-- `CREATOR/meta` is never a project and never appears in the project overview.
+- `CREATOR/meta` is never a project and never appears in the catalog project grid.
 - Allowed files directly in a creator are scanned without entering projects.
 - `meta` is scanned recursively without a depth limit.
 - Media directly in `meta` merges with direct creator media of the same type.
@@ -88,28 +88,33 @@ Status: implemented for version 0.8.0
 ## Generated interface
 
 - The interface has a dark theme only and no external runtime dependencies.
-- The `separate` overview mode is the default. `index.html` is a searchable
-  creator grid and `projects.html` is a searchable global project grid.
-- The `grouped` overview mode produces only `index.html` as an overview.
-  Creators are stacked vertically, and each creator's projects form a
-  horizontal row beneath its heading.
-- Grouped creator headings contain the portrait and name when a portrait is
-  available. A missing or unreadable portrait is omitted without a placeholder.
-- Creator and project detail pages are generated in both overview modes.
-- Grouped navigation and detail-page breadcrumbs return to `index.html`; they
-  never link to an absent `projects.html`.
+- `index.html` is always the catalog. Its default All projects view shows a
+  cover, title, and creator grid. The By creator switch stacks creators
+  vertically, with each creator's projects in a horizontal row.
+- A separate portrait-based creator grid is generated as `creators.html` by
+  default. `--no-creator-grid` omits it; no `projects.html` is generated.
+- Catalog view selection is reflected in the URL hash (`#view-creators` or
+  `#view-projects`) for bookmarking and browser history. Switching retains the
+  search query, resets the alphabet filter and page number, and changes the
+  alphabet to the active view's initials.
+- By creator headings contain a circular portrait and name. If no portrait
+  is available, the circle shows the creator's first alphanumeric initial.
+- Creator and project detail pages are always generated. Catalog navigation and
+  detail-page breadcrumbs return to `index.html`; the creator grid is linked
+  only when generated.
 - Overview ordering is deterministic and alphabetical; there are no sorting
   controls.
 - Overview search and initial filters operate over the full embedded data set.
-- Grouped search matches creator and project names. When only project names
-  match, the creator remains visible with only its matching projects.
-- Overview cards are paginated in batches of 120, bounding the rendered grid
-  even when the embedded catalog is much larger.
-- Grouped overviews are paginated in batches of 40 creators. Horizontal rows
-  are initialized only for creators on the current page.
+- Catalog search matches creator and project names. In By creator view, when
+  only project names match, the creator remains visible with only its matching
+  projects. In All projects view, matching a creator shows that creator's
+  projects.
+- The creator grid paginates 120 cards at a time. The catalog paginates 40
+  creators or 120 projects at a time and renders only the active view.
+  Horizontal rows are initialized only for creators on the current page.
 - Creator cards contain portrait, name, and project count.
-- In the separate creator overview, portrait frames use a 2:3 ratio and crop
-  toward the upper part of the image. Grouped overview and creator detail
+- In the creator grid, portrait frames use a 2:3 ratio and crop toward the
+  upper part of the image. Catalog badges stay circular; creator detail
   portrait shapes are unchanged.
 - Project cards contain cover, project title, and creator name.
 - Creator detail pages contain portrait, name, README, projects, and creator
@@ -160,8 +165,7 @@ Status: implemented for version 0.8.0
 - Empty inline patterns are rejected. No `.gitignore` or `.galleryignore`
   is read automatically.
 - `--title TEXT` overrides the catalog title.
-- `--overview {separate,grouped}` selects the overview structure and defaults
-  to `separate`.
+- `--no-creator-grid` omits the separate `creators.html` portrait grid.
 - `--quiet` suppresses progress reports.
 - `--version` reports the program version.
 - Argument syntax errors exit with status 2, user/filesystem errors with status
@@ -190,7 +194,7 @@ Status: implemented for version 0.8.0
 - Overview metadata is materialized only while its corresponding overview page
   is rendered. At expected scales of roughly 1,000 creators and 10,000
   projects, this remains modest compared with media metadata.
-- Grouped overview project lookups use an indexed creator path and retain only
+- Catalog project lookups use an indexed creator path and retain only
   40 creator sections in the live DOM at once.
 - Catalog notices retain at most 200 detailed messages in memory and HTML while
   preserving the complete notice count.

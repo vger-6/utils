@@ -75,37 +75,35 @@
   const pageNext = document.querySelector("[data-page-next]");
   const pageStatus = document.querySelector("[data-page-status]");
 
+  const createOverviewCard = (item, kind) => {
+    const card = document.createElement("a");
+    card.className = `overview-card ${kind}-overview-card`;
+    card.href = item.href;
+    const frameClass =
+      kind === "creator"
+        ? "overview-artwork portrait-frame"
+        : "project-artwork cover-frame";
+    card.append(artwork(item, frameClass));
+
+    const copy = document.createElement("span");
+    copy.className = "overview-copy";
+    const title = document.createElement("span");
+    title.className = "overview-title";
+    title.textContent = item.title;
+    const meta = document.createElement("span");
+    meta.className = "overview-meta";
+    meta.textContent = item.meta;
+    copy.append(title, meta);
+    card.append(copy);
+    return card;
+  };
+
   if (overview && search && pagination && pagePrevious && pageNext && pageStatus) {
-    const kind = overview.dataset.cardKind || "creator";
-    const singular = kind === "project" ? "project" : "creator";
     const batchSize = 120;
     let initial = "";
     let filtered = overviewData;
     let currentPage = 0;
     let searchTimer;
-
-    const createOverviewCard = (item) => {
-      const card = document.createElement("a");
-      card.className = `overview-card ${kind}-overview-card`;
-      card.href = item.href;
-      const frameClass =
-        kind === "creator"
-          ? "overview-artwork portrait-frame"
-          : "project-artwork cover-frame";
-      card.append(artwork(item, frameClass));
-
-      const copy = document.createElement("span");
-      copy.className = "overview-copy";
-      const title = document.createElement("span");
-      title.className = "overview-title";
-      title.textContent = item.title;
-      const meta = document.createElement("span");
-      meta.className = "overview-meta";
-      meta.textContent = item.meta;
-      copy.append(title, meta);
-      card.append(copy);
-      return card;
-    };
 
     const renderPage = () => {
       overview.replaceChildren();
@@ -115,7 +113,7 @@
       const start = currentPage * batchSize;
       const limit = Math.min(filtered.length, start + batchSize);
       for (let index = start; index < limit; index += 1) {
-        fragment.append(createOverviewCard(filtered[index]));
+        fragment.append(createOverviewCard(filtered[index], "creator"));
       }
       overview.append(fragment);
       pagination.hidden = pageCount <= 1;
@@ -135,7 +133,7 @@
       renderPage();
       if (visibleItems) visibleItems.textContent = String(filtered.length);
       if (visibleLabel) {
-        visibleLabel.textContent = filtered.length === 1 ? singular : `${singular}s`;
+        visibleLabel.textContent = filtered.length === 1 ? "creator" : "creators";
       }
       if (noResults) noResults.hidden = filtered.length !== 0;
     };
@@ -574,14 +572,12 @@
     const header = document.createElement("header");
     header.className = "grouped-creator-header";
 
-    if (item.image) {
-      const portraitLink = document.createElement("a");
-      portraitLink.className = "grouped-portrait-link";
-      portraitLink.href = item.href;
-      portraitLink.setAttribute("aria-label", item.title);
-      portraitLink.append(artwork(item, "grouped-portrait-artwork portrait-frame"));
-      header.append(portraitLink);
-    }
+    const portraitLink = document.createElement("a");
+    portraitLink.className = "grouped-portrait-link";
+    portraitLink.href = item.href;
+    portraitLink.setAttribute("aria-label", item.title);
+    portraitLink.append(artwork(item, "grouped-portrait-artwork portrait-frame"));
+    header.append(portraitLink);
 
     const copy = document.createElement("div");
     copy.className = "grouped-creator-copy";
@@ -608,105 +604,200 @@
     return section;
   };
 
-  const groupedList = document.querySelector("[data-grouped-list]");
-  const groupedData = parseData(document.querySelector("#grouped-data"));
-  const groupedPagination = document.querySelector("[data-grouped-pagination]");
-  const groupedPrevious = document.querySelector("[data-grouped-previous]");
-  const groupedNext = document.querySelector("[data-grouped-next]");
-  const groupedStatus = document.querySelector("[data-grouped-status]");
+  const creatorList = document.querySelector("[data-catalog-creator-list]");
+  const projectGrid = document.querySelector("[data-catalog-project-grid]");
+  const catalogAlphabet = document.querySelector("[data-catalog-alphabet]");
+  const catalogViewButtons = document.querySelectorAll("[data-catalog-view]");
+  const catalogData = parseData(document.querySelector("#catalog-data"));
+  const catalogPagination = document.querySelector("[data-catalog-pagination]");
+  const catalogPrevious = document.querySelector("[data-catalog-previous]");
+  const catalogNext = document.querySelector("[data-catalog-next]");
+  const catalogStatus = document.querySelector("[data-catalog-status]");
   const visibleProjects = document.querySelector("#visible-projects");
   const visibleProjectLabel = document.querySelector("#visible-project-label");
+  const extraSummary = document.querySelector("[data-catalog-extra-summary]");
 
   if (
-    groupedList &&
+    creatorList &&
+    projectGrid &&
     search &&
-    groupedPagination &&
-    groupedPrevious &&
-    groupedNext &&
-    groupedStatus
+    catalogPagination &&
+    catalogPrevious &&
+    catalogNext &&
+    catalogStatus
   ) {
-    const batchSize = 40;
+    const compareNames = (left, right) => {
+      const a = left.toLocaleLowerCase();
+      const b = right.toLocaleLowerCase();
+      if (a !== b) return a < b ? -1 : 1;
+      if (left === right) return 0;
+      return left < right ? -1 : 1;
+    };
+    const projectItems = catalogData.flatMap((creator) =>
+      creator.projects.map((project) => ({
+        ...project,
+        meta: creator.title,
+        search: `${project.search} ${creator.search}`,
+      })),
+    );
+    projectItems.sort(
+      (a, b) => compareNames(a.title, b.title) || compareNames(a.meta, b.meta),
+    );
+    const creatorInitials = new Set(catalogData.map((item) => item.initial));
+    const projectInitials = new Set(projectItems.map((item) => item.initial));
+    const alphabetButtons = catalogAlphabet?.querySelectorAll("[data-initial]") || [];
+    const searchLabel = search.closest(".search-field")?.querySelector(".visually-hidden");
+    let view = "";
     let initial = "";
-    let filtered = [];
+    let filteredCreators = [];
+    let filteredProjects = [];
     let currentPage = 0;
     let searchTimer;
 
-    const renderGroupedPage = () => {
-      destroyRails(groupedList);
-      groupedList.replaceChildren();
+    const renderPage = () => {
+      const projectsView = view === "projects";
+      const filtered = projectsView ? filteredProjects : filteredCreators;
+      const batchSize = projectsView ? 120 : 40;
       const fragment = document.createDocumentFragment();
       const pageCount = Math.max(1, Math.ceil(filtered.length / batchSize));
       currentPage = Math.min(currentPage, pageCount - 1);
       const start = currentPage * batchSize;
       const limit = Math.min(filtered.length, start + batchSize);
-      for (let index = start; index < limit; index += 1) {
-        const entry = filtered[index];
-        fragment.append(createGroupedCreator(entry.item, entry.projects));
+      if (projectsView) {
+        destroyRails(creatorList);
+        creatorList.replaceChildren();
+        projectGrid.replaceChildren();
+        for (let index = start; index < limit; index += 1) {
+          fragment.append(createOverviewCard(filtered[index], "project"));
+        }
+        projectGrid.append(fragment);
+      } else {
+        projectGrid.replaceChildren();
+        destroyRails(creatorList);
+        creatorList.replaceChildren();
+        for (let index = start; index < limit; index += 1) {
+          const entry = filtered[index];
+          fragment.append(createGroupedCreator(entry.item, entry.projects));
+        }
+        creatorList.append(fragment);
+        initializeRails(creatorList);
       }
-      groupedList.append(fragment);
-      initializeRails(groupedList);
-      groupedPagination.hidden = pageCount <= 1;
-      groupedPrevious.disabled = currentPage === 0;
-      groupedNext.disabled = currentPage >= pageCount - 1;
-      groupedStatus.textContent = `Page ${currentPage + 1} of ${pageCount}`;
+      catalogPagination.hidden = pageCount <= 1;
+      catalogPrevious.disabled = currentPage === 0;
+      catalogNext.disabled = currentPage >= pageCount - 1;
+      catalogStatus.textContent = `Page ${currentPage + 1} of ${pageCount}`;
     };
 
-    const applyGroupedFilter = () => {
+    const applyCatalogFilter = () => {
       const query = search.value.trim().toLocaleLowerCase();
-      filtered = groupedData.flatMap((item) => {
-        if (initial && item.initial !== initial) return [];
-        const allProjects = Array.isArray(item.projects) ? item.projects : [];
-        const creatorMatches = !query || (item.search || "").includes(query);
-        const projects = creatorMatches
-          ? allProjects
-          : allProjects.filter((project) =>
-              (project.search || "").includes(query),
-            );
-        if (!creatorMatches && projects.length === 0) return [];
-        return [{ item, projects }];
-      });
+      if (view === "projects") {
+        filteredProjects = projectItems.filter(
+          (project) =>
+            (!initial || project.initial === initial) &&
+            (!query || project.search.includes(query)),
+        );
+      } else {
+        filteredCreators = catalogData.flatMap((item) => {
+          if (initial && item.initial !== initial) return [];
+          const creatorMatches = !query || item.search.includes(query);
+          const projects = creatorMatches
+            ? item.projects
+            : item.projects.filter((project) => project.search.includes(query));
+          if (!creatorMatches && projects.length === 0) return [];
+          return [{ item, projects }];
+        });
+      }
       currentPage = 0;
-      renderGroupedPage();
+      renderPage();
 
-      const projectCount = filtered.reduce(
+      const projectCount = filteredCreators.reduce(
         (count, entry) => count + entry.projects.length,
         0,
       );
-      if (visibleItems) visibleItems.textContent = String(filtered.length);
+      const count = view === "projects" ? filteredProjects.length : filteredCreators.length;
+      if (visibleItems) visibleItems.textContent = String(count);
       if (visibleLabel) {
-        visibleLabel.textContent = filtered.length === 1 ? "creator" : "creators";
+        const singular = view === "projects" ? "project" : "creator";
+        visibleLabel.textContent = count === 1 ? singular : `${singular}s`;
       }
       if (visibleProjects) visibleProjects.textContent = String(projectCount);
       if (visibleProjectLabel) {
         visibleProjectLabel.textContent = projectCount === 1 ? "project" : "projects";
       }
-      if (noResults) noResults.hidden = filtered.length !== 0;
+      if (noResults) {
+        noResults.textContent = view === "projects"
+          ? "No matching projects."
+          : "No matching creators or projects.";
+        noResults.hidden = count !== 0;
+      }
+    };
+
+    const setView = (nextView) => {
+      if (view === nextView) return;
+      view = nextView;
+      initial = "";
+      window.clearTimeout(searchTimer);
+      creatorList.hidden = view !== "creators";
+      projectGrid.hidden = view !== "projects";
+      if (extraSummary) extraSummary.hidden = view === "projects";
+      const label = view === "projects"
+        ? "Search projects and creators"
+        : "Search creators and projects";
+      search.placeholder = label;
+      if (searchLabel) searchLabel.textContent = label;
+      catalogViewButtons.forEach((button) => {
+        const current = button.dataset.catalogView === view;
+        button.classList.toggle("current", current);
+        button.setAttribute("aria-pressed", String(current));
+      });
+      const available = view === "projects" ? projectInitials : creatorInitials;
+      alphabetButtons.forEach((button) => {
+        const letter = button.dataset.initial || "";
+        button.hidden = Boolean(letter) && !available.has(letter);
+        button.classList.toggle("current", !letter);
+      });
+      applyCatalogFilter();
     };
 
     search.addEventListener("input", () => {
       window.clearTimeout(searchTimer);
-      searchTimer = window.setTimeout(applyGroupedFilter, 100);
+      searchTimer = window.setTimeout(applyCatalogFilter, 100);
     });
-    document.querySelectorAll("[data-initial]").forEach((button) => {
+    alphabetButtons.forEach((button) => {
       button.addEventListener("click", () => {
         initial = button.dataset.initial || "";
-        document.querySelectorAll("[data-initial]").forEach((candidate) => {
+        alphabetButtons.forEach((candidate) => {
           candidate.classList.toggle("current", candidate === button);
         });
-        applyGroupedFilter();
+        applyCatalogFilter();
       });
     });
-    groupedPrevious.addEventListener("click", () => {
+    catalogViewButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const nextView = button.dataset.catalogView;
+        if (nextView === view) return;
+        setView(nextView);
+        window.location.hash = `view-${nextView}`;
+      });
+    });
+    window.addEventListener("hashchange", () => {
+      setView(window.location.hash === "#view-creators" ? "creators" : "projects");
+    });
+    catalogPrevious.addEventListener("click", () => {
       currentPage -= 1;
-      renderGroupedPage();
-      groupedList.scrollIntoView({ behavior: "smooth", block: "start" });
+      renderPage();
+      (view === "projects" ? projectGrid : creatorList).scrollIntoView({
+        behavior: "smooth", block: "start",
+      });
     });
-    groupedNext.addEventListener("click", () => {
+    catalogNext.addEventListener("click", () => {
       currentPage += 1;
-      renderGroupedPage();
-      groupedList.scrollIntoView({ behavior: "smooth", block: "start" });
+      renderPage();
+      (view === "projects" ? projectGrid : creatorList).scrollIntoView({
+        behavior: "smooth", block: "start",
+      });
     });
-    applyGroupedFilter();
+    setView(window.location.hash === "#view-creators" ? "creators" : "projects");
   }
 
   lightboxPrevious?.addEventListener("click", () => showMedia(activeIndex - 1, true));

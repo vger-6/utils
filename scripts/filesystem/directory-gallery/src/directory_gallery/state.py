@@ -23,7 +23,7 @@ from .output import (
 
 SCHEMA_VERSION = 1
 GENERATED_FILE = re.compile(
-    r"^(?:index\.html|projects\.html|"
+    r"^(?:index\.html|creators\.html|projects\.html|"
     r"assets/directory-gallery\.(?:css|js)|"
     r"(?:creators|projects)/[0-9a-f]{16}\.html)$"
 )
@@ -253,17 +253,6 @@ class CatalogState:
             SELECT source_path, name, page, portrait, project_count
             FROM creators WHERE last_seen = ?
             ORDER BY name COLLATE NOCASE, name
-            """,
-            (self.run_id,),
-        )
-        yield from cursor
-
-    def projects(self) -> Iterator[sqlite3.Row]:
-        cursor = self.connection.execute(
-            """
-            SELECT source_path, creator_path, creator_name, name, page, cover
-            FROM projects WHERE last_seen = ?
-            ORDER BY name COLLATE NOCASE, name, creator_name COLLATE NOCASE, creator_name
             """,
             (self.run_id,),
         )

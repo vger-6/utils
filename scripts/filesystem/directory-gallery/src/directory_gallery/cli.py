@@ -63,13 +63,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="page title; defaults to the input directory name",
     )
     parser.add_argument(
-        "--overview",
-        choices=("separate", "grouped"),
-        default="separate",
-        help=(
-            "overview structure: separate creator/project grids (default) "
-            "or creators with horizontal project rows"
-        ),
+        "--no-creator-grid",
+        action="store_false",
+        dest="creator_grid",
+        help="omit the additional creators.html portrait grid",
     )
     parser.add_argument(
         "--quiet",
@@ -91,7 +88,7 @@ def run(arguments: argparse.Namespace) -> int:
         output,
         arguments.title or default_title,
         exclusions,
-        overview=arguments.overview,
+        creator_grid=arguments.creator_grid,
         quiet=arguments.quiet,
     )
 
