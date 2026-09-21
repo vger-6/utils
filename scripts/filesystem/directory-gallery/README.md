@@ -169,6 +169,8 @@ depends on the codecs installed in that browser.
 - Every creator has a dedicated page with its portrait, exact `README.md`, a
   project row, and allowed creator media. With collaboration linking enabled,
   its Projects row and project count include shared projects too.
+- Creator detail portraits show the entire image in a rounded 2:3 frame;
+  portrait cards in the separate creator grid keep their 2:3 crop.
 - Every project has a dedicated page with its cover, exact `README.md`, and
   recursively discovered media.
 - Short READMEs remain fully visible. Longer ones start as a roughly 350px

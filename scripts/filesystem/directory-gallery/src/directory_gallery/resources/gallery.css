@@ -468,9 +468,13 @@ input::placeholder {
 
 .detail-artwork.portrait-frame {
   width: clamp(150px, 22vw, 260px);
-  aspect-ratio: 1;
+  aspect-ratio: 2 / 3;
   flex: 0 0 auto;
-  border-radius: 50%;
+  border-radius: var(--radius);
+}
+
+.detail-artwork.portrait-frame .portrait-image {
+  object-fit: contain;
 }
 
 .detail-artwork.cover-frame {

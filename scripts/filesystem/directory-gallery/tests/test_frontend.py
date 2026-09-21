@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from PIL import Image
+
 from directory_gallery.cli import main
 
 
@@ -45,6 +47,49 @@ class FrontendTests(unittest.TestCase):
         match = re.search(r'<pre id="result">([^<]+)</pre>', result.stdout)
         self.assertIsNotNone(match, result.stdout[-1000:])
         return json.loads(html.unescape(match.group(1)))
+
+    def test_creator_detail_contains_whole_portrait_without_changing_grid_crop(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            source = temporary / "source"
+            creator = source / "Creator"
+            creator.mkdir(parents=True)
+            Image.new("RGB", (300, 100), "red").save(creator / "portrait.jpg")
+            output = temporary / "site"
+            self.assertEqual(main([str(source), str(output), "--quiet"]), 0)
+
+            detail = next((output / "creators").glob("*.html"))
+            probe = '''<pre id="result"></pre><script>
+window.addEventListener("load", () => {
+  const frame = document.querySelector(".detail-artwork.portrait-frame");
+  const portrait = frame.querySelector(".portrait-image");
+  const gridCard = document.createElement("div");
+  gridCard.className = "creator-overview-card";
+  gridCard.innerHTML = '<span class="overview-artwork portrait-frame"><img src="' + portrait.src + '"></span>';
+  document.body.append(gridCard);
+  const bounds = frame.getBoundingClientRect();
+  document.querySelector("#result").textContent = JSON.stringify({
+    detailFit: getComputedStyle(portrait).objectFit,
+    detailRatio: bounds.width / bounds.height,
+    detailRadius: getComputedStyle(frame).borderRadius,
+    gridFit: getComputedStyle(gridCard.querySelector("img")).objectFit,
+  });
+});
+</script>'''
+            detail.write_text(
+                detail.read_text(encoding="utf-8").replace("</body>", probe + "</body>"),
+                encoding="utf-8",
+            )
+
+            for width in (1280, 500):
+                with self.subTest(width=width):
+                    result = self.browser_result(
+                        detail, temporary / f"profile-portrait-{width}", width
+                    )
+                    self.assertEqual(result["detailFit"], "contain")
+                    self.assertAlmostEqual(result["detailRatio"], 2 / 3, places=2)
+                    self.assertNotEqual(result["detailRadius"], "50%")
+                    self.assertEqual(result["gridFit"], "cover")
 
     def test_domain_labels_follow_client_side_view_changes(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

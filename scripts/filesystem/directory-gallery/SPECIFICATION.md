@@ -144,8 +144,9 @@ Status: implemented for version 0.8.0
 - Creator cards contain portrait, name, and the count of own plus linked
   collaboration projects when linking is enabled.
 - In the creator grid, portrait frames use a 2:3 ratio and crop toward the
-  upper part of the image. Catalog badges stay circular; creator detail
-  portrait shapes are unchanged.
+  upper part of the image. Catalog badges stay circular. Creator detail
+  portraits use a rounded 2:3 frame with the entire image contained, without
+  cropping; images of other proportions may have empty space inside the frame.
 - Project cards contain cover, project title, and creator name.
 - Creator detail pages contain portrait, name, README, projects, and creator
   media. Projects are always the first content row when present.
