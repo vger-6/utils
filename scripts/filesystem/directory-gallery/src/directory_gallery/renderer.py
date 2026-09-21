@@ -240,10 +240,12 @@ def _lightbox() -> str:
     </header>
     <div class="lightbox-stage">
       <button class="lightbox-step previous" type="button" data-lightbox-previous aria-label="Previous item">‹</button>
-      <div class="lightbox-viewer" id="lightbox-viewer"></div>
+      <div class="lightbox-viewer">
+        <div class="lightbox-media" id="lightbox-media"></div>
+        <div class="audio-playlist" id="audio-playlist" hidden></div>
+      </div>
       <button class="lightbox-step next" type="button" data-lightbox-next aria-label="Next item">›</button>
     </div>
-    <div class="audio-playlist" id="audio-playlist" hidden></div>
   </section>
 </div>""".strip()
 

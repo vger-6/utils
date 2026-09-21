@@ -167,7 +167,7 @@
   }
 
   const lightbox = document.querySelector("#media-lightbox");
-  const viewer = document.querySelector("#lightbox-viewer");
+  const viewer = document.querySelector("#lightbox-media");
   const playlist = document.querySelector("#audio-playlist");
   const lightboxTitle = document.querySelector("#lightbox-title");
   const original = document.querySelector("#lightbox-original");
@@ -177,6 +177,8 @@
   let activeItems = [];
   let activeIndex = 0;
   let trigger = null;
+  let mediaRequest = 0;
+  const imagePreloads = new Map();
 
   const stopMedia = () => {
     viewer?.querySelectorAll("audio, video").forEach((media) => {
@@ -199,6 +201,43 @@
     });
   };
 
+  const prepareImage = (item) => {
+    if (imagePreloads.has(item.src)) return imagePreloads.get(item.src);
+    const image = new Image();
+    image.decoding = "async";
+    image.alt = item.title || "";
+    let ready;
+    if (typeof image.decode === "function") {
+      image.src = item.src;
+      ready = image.decode().then(() => image);
+    } else {
+      ready = new Promise((resolve, reject) => {
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error("Image failed to load"));
+        image.src = item.src;
+      });
+    }
+    imagePreloads.set(item.src, ready);
+    return ready;
+  };
+
+  const preloadAdjacentImages = () => {
+    const neighbors = [activeIndex];
+    if (activeItems.length > 1) {
+      neighbors.push(
+        (activeIndex + activeItems.length - 1) % activeItems.length,
+        (activeIndex + 1) % activeItems.length,
+      );
+    }
+    const retained = new Set(neighbors.map((index) => activeItems[index].src));
+    imagePreloads.forEach((_ready, src) => {
+      if (!retained.has(src)) imagePreloads.delete(src);
+    });
+    neighbors.forEach((index) => {
+      prepareImage(activeItems[index]).catch(() => {});
+    });
+  };
+
   const showMedia = (index, autoplay = false) => {
     if (
       !viewer ||
@@ -211,20 +250,51 @@
     ) {
       return;
     }
-    stopMedia();
+    const request = ++mediaRequest;
     activeIndex = (index + activeItems.length) % activeItems.length;
     const item = activeItems[activeIndex];
-    lightboxTitle.textContent = item.title || "Media";
-    original.href = item.src || "";
-    viewer.replaceChildren();
     playlist.hidden = item.kind !== "audio";
+    lightboxPrevious.disabled = activeItems.length < 2;
+    lightboxNext.disabled = activeItems.length < 2;
+
+    const updateMetadata = () => {
+      lightboxTitle.textContent = item.title || "Media";
+      original.href = item.src || "";
+    };
+
+    if (item.kind === "image") {
+      if (!viewer.firstElementChild) updateMetadata();
+      viewer.setAttribute("aria-busy", "true");
+      prepareImage(item).then(
+        (image) => {
+          if (request !== mediaRequest || lightbox.hidden) return;
+          updateMetadata();
+          viewer.replaceChildren(image);
+          viewer.removeAttribute("aria-busy");
+          preloadAdjacentImages();
+        },
+        () => {
+          if (request !== mediaRequest || lightbox.hidden) return;
+          updateMetadata();
+          const error = document.createElement("p");
+          error.className = "media-error";
+          error.textContent = "This image could not be displayed. Try Open original.";
+          viewer.replaceChildren(error);
+          viewer.removeAttribute("aria-busy");
+          preloadAdjacentImages();
+        },
+      );
+      return;
+    }
+
+    imagePreloads.clear();
+    stopMedia();
+    viewer.removeAttribute("aria-busy");
+    viewer.replaceChildren();
+    updateMetadata();
 
     let media;
-    if (item.kind === "image") {
-      media = document.createElement("img");
-      media.src = item.src;
-      media.alt = item.title || "";
-    } else if (item.kind === "pdf") {
+    if (item.kind === "pdf") {
       media = document.createElement("iframe");
       media.src = item.src;
       media.title = item.title || "PDF";
@@ -249,8 +319,6 @@
       viewer.append(media);
       if (autoplay && "play" in media) media.play().catch(() => {});
     }
-    lightboxPrevious.disabled = activeItems.length < 2;
-    lightboxNext.disabled = activeItems.length < 2;
   };
 
   const openLightbox = (items, index, button) => {
@@ -258,6 +326,7 @@
     activeItems = items;
     activeIndex = index;
     trigger = button;
+    imagePreloads.clear();
     lightbox.hidden = false;
     document.body.classList.add("lightbox-open");
     showMedia(index, items[index]?.kind === "audio");
@@ -266,12 +335,19 @@
 
   const closeLightbox = () => {
     if (!lightbox || !viewer || !playlist) return;
+    mediaRequest += 1;
+    imagePreloads.clear();
     stopMedia();
     lightbox.hidden = true;
     document.body.classList.remove("lightbox-open");
     viewer.replaceChildren();
+    viewer.removeAttribute("aria-busy");
     playlist.replaceChildren();
+    if (lightboxTitle) lightboxTitle.textContent = "";
+    if (original) original.removeAttribute("href");
+    activeItems = [];
     trigger?.focus();
+    trigger = null;
   };
 
   const createRailCard = (item, items, index) => {

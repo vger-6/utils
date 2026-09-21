@@ -1,6 +1,6 @@
 # Directory Gallery specification
 
-Status: implemented for version 0.5.0
+Status: implemented for version 0.6.0
 
 ## Source model
 
@@ -121,7 +121,11 @@ Status: implemented for version 0.5.0
   window in the DOM. The complete row metadata remains available for scrolling
   and lightbox navigation.
 - Images, PDFs, videos, and audio open in a shared accessible lightbox.
+- The lightbox has a stable responsive outer size for all media types. Audio
+  playlists occupy space inside the viewer rather than resizing the dialog.
 - Image navigation stays within the selected row and loads the original file.
+  The currently displayed image remains visible until the next one is decoded;
+  immediate neighbors are preloaded with a bounded in-memory cache.
 - PDFs use cached first-page thumbnails and an embedded browser PDF viewer.
 - Videos use an HTML video player and stop when the lightbox closes.
 - Audio uses one HTML audio player plus a playlist for the selected row and

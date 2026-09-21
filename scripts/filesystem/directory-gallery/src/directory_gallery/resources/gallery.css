@@ -763,7 +763,9 @@ input::placeholder {
   position: relative;
   display: grid;
   width: min(1180px, 100%);
-  max-height: calc(100vh - 48px);
+  height: min(820px, calc(100vh - 48px));
+  height: min(820px, calc(100dvh - 48px));
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: 16px;
@@ -805,7 +807,7 @@ input::placeholder {
 
 .lightbox-stage {
   display: grid;
-  min-height: 360px;
+  min-height: 0;
   grid-template-columns: 52px minmax(0, 1fr) 52px;
   align-items: stretch;
 }
@@ -814,31 +816,50 @@ input::placeholder {
   display: grid;
   min-width: 0;
   min-height: 0;
-  max-height: calc(100vh - 150px);
-  place-items: center;
-  overflow: auto;
-  padding: 18px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
   background: #070a0e;
 }
 
-.lightbox-viewer img,
-.lightbox-viewer video {
+.lightbox-media {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  /* Prevent intrinsic media dimensions from enlarging and clipping the grid row. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  place-items: center;
+  overflow: hidden;
+  padding: 18px;
+}
+
+.lightbox-media img,
+.lightbox-media video {
   display: block;
-  max-width: 100%;
-  max-height: calc(100vh - 190px);
+  width: 100%;
+  height: 100%;
   object-fit: contain;
 }
 
-.lightbox-viewer audio {
+.lightbox-media audio {
   width: min(680px, 100%);
 }
 
-.lightbox-viewer iframe {
+.lightbox-media iframe {
   width: 100%;
-  height: calc(100vh - 190px);
-  min-height: 480px;
+  height: 100%;
   border: 0;
   background: white;
+}
+
+.lightbox-media:empty::after,
+.media-error {
+  color: var(--muted);
+  text-align: center;
+}
+
+.lightbox-media[aria-busy="true"]:empty::after {
+  content: "Loading image…";
 }
 
 .lightbox-step {
@@ -858,7 +879,8 @@ input::placeholder {
 }
 
 .audio-playlist {
-  max-height: 230px;
+  max-height: min(230px, 30vh);
+  min-height: 0;
   overflow: auto;
   padding: 10px;
   border-top: 1px solid var(--border);
@@ -978,7 +1000,7 @@ input::placeholder {
   .lightbox-dialog {
     width: 100%;
     height: 100%;
-    max-height: none;
+    height: 100dvh;
     border: 0;
     border-radius: 0;
   }
@@ -992,14 +1014,8 @@ input::placeholder {
     grid-template-columns: 42px minmax(0, 1fr) 42px;
   }
 
-  .lightbox-viewer {
-    max-height: none;
+  .lightbox-media {
     padding: 8px;
-  }
-
-  .lightbox-viewer iframe {
-    height: 100%;
-    min-height: 0;
   }
 }
 

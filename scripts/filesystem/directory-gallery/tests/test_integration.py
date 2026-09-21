@@ -125,6 +125,12 @@ class IntegrationTests(unittest.TestCase):
             self.assertIn(">PDFs</h2>", project_html)
             self.assertIn(">Videos</h2>", project_html)
             self.assertIn(">Audio</h2>", project_html)
+            self.assertIn('class="lightbox-viewer"', project_html)
+            self.assertRegex(
+                project_html,
+                r'class="lightbox-media" id="lightbox-media"></div>\s*'
+                r'<div class="audio-playlist" id="audio-playlist" hidden></div>',
+            )
             kinds = {
                 item["kind"] for row in rail_data(project_html) for item in row
             }

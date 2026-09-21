@@ -122,6 +122,9 @@ depends on the codecs installed in that browser.
   precedes alphabetically ordered subdirectory rows within each type.
 - Clicking an image, PDF, video, or audio item opens the shared lightbox. Audio
   rows become playlists and continue automatically to the next track.
+- The lightbox keeps the same outer size across media types, including when an
+  audio playlist is shown. Image navigation keeps the current image visible
+  until the next original is decoded, and preloads its immediate neighbors.
 
 No generic filesystem listing is generated. Unsupported files never appear.
 
