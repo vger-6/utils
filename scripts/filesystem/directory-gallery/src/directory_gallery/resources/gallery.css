@@ -249,8 +249,8 @@ input::placeholder {
 
 .creator-overview-card .portrait-frame {
   width: 100%;
-  aspect-ratio: 1;
-  border-radius: 50%;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius);
 }
 
 .project-overview-card .cover-frame,
@@ -287,6 +287,10 @@ input::placeholder {
 .portrait-image,
 .creator-overview-card .overview-artwork img {
   object-fit: cover;
+}
+
+.creator-overview-card .overview-artwork img {
+  object-position: center 25%;
 }
 
 .cover-image,

@@ -103,6 +103,9 @@ Status: implemented for version 0.4.0
 - Grouped overviews are paginated in batches of 40 creators. Horizontal rows
   are initialized only for creators on the current page.
 - Creator cards contain portrait, name, and project count.
+- In the separate creator overview, portrait frames use a 2:3 ratio and crop
+  toward the upper part of the image. Grouped overview and creator detail
+  portrait shapes are unchanged.
 - Project cards contain cover, project title, and creator name.
 - Creator detail pages contain portrait, name, README, projects, and creator
   media. Projects are always the first content row when present.
