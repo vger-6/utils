@@ -450,9 +450,14 @@ input::placeholder {
   min-width: 0;
 }
 
-.readme {
+.readme-container {
   max-width: 920px;
   margin: 4px 0 46px;
+}
+
+.readme {
+  --readme-preview-height: 350px;
+  margin: 0;
   padding: clamp(22px, 4vw, 38px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -461,11 +466,44 @@ input::placeholder {
   line-height: 1.7;
 }
 
-.readme > :first-child {
+.readme.is-collapsed {
+  position: relative;
+  max-height: var(--readme-preview-height);
+  overflow: hidden;
+}
+
+.readme.is-collapsed::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 76px;
+  background: linear-gradient(transparent, var(--surface));
+  content: "";
+  pointer-events: none;
+}
+
+.readme-toggle {
+  margin-top: 12px;
+  padding: 9px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.readme-toggle:hover {
+  background: var(--surface-hover);
+}
+
+.readme-body > :first-child {
   margin-top: 0;
 }
 
-.readme > :last-child {
+.readme-body > :last-child {
   margin-bottom: 0;
 }
 

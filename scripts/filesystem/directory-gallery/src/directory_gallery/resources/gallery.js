@@ -11,6 +11,37 @@
     }
   };
 
+  const readme = document.querySelector(".readme");
+  const readmeBody = readme?.querySelector(".readme-body");
+  const readmeToggle = document.querySelector(".readme-toggle");
+  if (readme && readmeBody && readmeToggle) {
+    const previewHeight =
+      Number.parseFloat(
+        getComputedStyle(readme).getPropertyValue("--readme-preview-height"),
+      ) || 350;
+    let expanded = false;
+
+    const updateReadme = () => {
+      const isLong = readme.scrollHeight > previewHeight + 8;
+      readmeToggle.hidden = !isLong;
+      if (!isLong) expanded = false;
+      readme.classList.toggle("is-collapsed", isLong && !expanded);
+      readmeToggle.setAttribute("aria-expanded", String(expanded));
+      readmeToggle.textContent = expanded ? "Show less" : "Show more";
+    };
+
+    readmeToggle.addEventListener("click", () => {
+      expanded = !expanded;
+      updateReadme();
+      if (!expanded) readme.scrollIntoView({ block: "start" });
+    });
+    updateReadme();
+    if ("ResizeObserver" in window) {
+      new ResizeObserver(updateReadme).observe(readmeBody);
+    }
+    window.addEventListener("load", updateReadme, { once: true });
+  }
+
   const artwork = (item, frameClass) => {
     const frame = document.createElement("span");
     frame.className = frameClass;

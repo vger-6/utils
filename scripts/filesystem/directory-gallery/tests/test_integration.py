@@ -111,6 +111,11 @@ class IntegrationTests(unittest.TestCase):
             self.assertIn("Biography", creator_html)
             self.assertIn("<strong>Important</strong>", creator_html)
             self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", creator_html)
+            for detail_html in (creator_html, project_html):
+                self.assertIn('class="readme-container"', detail_html)
+                self.assertIn('class="readme-body"', detail_html)
+                self.assertIn('aria-controls="readme-content"', detail_html)
+                self.assertNotIn('class="readme is-collapsed"', detail_html)
             self.assertIn(">Projects</h2>", creator_html)
             self.assertIn(">Images</h2>", creator_html)
             self.assertIn("artist.jpg", creator_html)
@@ -344,6 +349,7 @@ class IntegrationTests(unittest.TestCase):
             project_html = project_page.read_text(encoding="utf-8")
             index = (output / "index.html").read_text(encoding="utf-8")
             self.assertIn("cover-placeholder", project_html)
+            self.assertNotIn('class="readme-toggle"', project_html)
             self.assertIn("Could not create thumbnail", index)
 
     def test_migrates_legacy_manifest_and_flat_thumbnail_without_regeneration(self):

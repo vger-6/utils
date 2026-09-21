@@ -110,6 +110,10 @@ depends on the codecs installed in that browser.
   project row, and allowed creator media.
 - Every project has a dedicated page with its cover, exact `README.md`, and
   recursively discovered media.
+- Short READMEs remain fully visible. Longer ones start as a roughly 350px
+  preview with a fade and a Show more button; expanding reveals the complete
+  Markdown without an inner scroll area. Without JavaScript, the complete
+  README remains visible.
 - Project and media rows scroll horizontally using arrow buttons, touch,
   trackpads, or native horizontal scrolling.
 - Horizontal rows render only cards near the visible viewport. Lightbox

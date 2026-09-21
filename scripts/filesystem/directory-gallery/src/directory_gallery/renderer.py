@@ -421,7 +421,18 @@ def _media_rows(
 
 
 def _readme_markup(markup: str) -> str:
-    return f'<article class="readme">{markup}</article>' if markup else ""
+    if not markup:
+        return ""
+    return (
+        '<div class="readme-container">'
+        '<article class="readme" id="readme-content">'
+        f'<div class="readme-body">{markup}</div>'
+        '</article>'
+        '<button class="readme-toggle" type="button" '
+        'aria-controls="readme-content" aria-expanded="false" hidden>'
+        'Show more</button>'
+        '</div>'
+    )
 
 
 def _warnings_markup(warnings: WarningLog) -> str:

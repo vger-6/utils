@@ -1,6 +1,6 @@
 # Directory Gallery specification
 
-Status: implemented for version 0.4.0
+Status: implemented for version 0.5.0
 
 ## Source model
 
@@ -79,6 +79,11 @@ Status: implemented for version 0.4.0
 - Invalid or disallowed relative links are disabled.
 - README text is embedded at generation time and does not require browser-side
   filesystem access.
+- Detail pages show short rendered READMEs in full. READMEs taller than the
+  roughly 350px preview start collapsed behind a fade with an accessible
+  Show more/Show less control. The rendered height, including images, determines
+  whether the control appears. Without JavaScript, all README content remains
+  visible.
 
 ## Generated interface
 
