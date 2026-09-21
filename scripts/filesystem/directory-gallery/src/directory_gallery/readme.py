@@ -11,6 +11,7 @@ from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
 from .models import CatalogWarning
+from .patterns import ExclusionRules
 from .scanner import MEDIA_EXTENSIONS
 
 
@@ -41,6 +42,7 @@ def _rewrite_local_url(
     boundary: Path,
     page: Path,
     image: bool,
+    exclusions: Optional[ExclusionRules],
 ) -> Optional[str]:
     parsed = urlsplit(value)
     if parsed.scheme in {"http", "https", "mailto"} or parsed.netloc:
@@ -52,6 +54,8 @@ def _rewrite_local_url(
 
     candidate = (source_directory / unquote(parsed.path)).resolve(strict=False)
     if not _inside(boundary.resolve(), candidate) or not candidate.is_file():
+        return None
+    if exclusions is not None and exclusions.excludes_file_or_parent(candidate):
         return None
     extension = candidate.suffix.casefold()
     if extension not in _ALLOWED_LOCAL_EXTENSIONS:
@@ -69,6 +73,7 @@ def render_readme(
     boundary: Path,
     page: Path,
     warnings: List[CatalogWarning],
+    exclusions: Optional[ExclusionRules] = None,
 ) -> str:
     if readme is None:
         return ""
@@ -94,6 +99,7 @@ def render_readme(
             boundary,
             page,
             image=token.type == "image",
+            exclusions=exclusions,
         )
         token.attrSet(attribute, rewritten or "#")
         if token.type == "link_open" and rewritten and urlsplit(rewritten).scheme:

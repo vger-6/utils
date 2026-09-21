@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "directory-gallery"
-version = "0.6.0"
+version = "0.7.0"
 description = "Generate a static media catalog from a creator/project directory tree"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "GPL-3.0-or-later" }
 dependencies = [
   "markdown-it-py>=3,<5",
+  "pathspec>=1.1,<2",
   "Pillow>=10,<13",
   "PyMuPDF>=1.24,<2",
 ]

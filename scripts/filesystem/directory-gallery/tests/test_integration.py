@@ -8,7 +8,7 @@ import re
 import sqlite3
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import pymupdf
@@ -187,7 +187,7 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(len(list((output / "projects").glob("*.html"))), 1)
             self.assertEqual(len(list((output / "thumbnails").rglob("*.jpg"))), 1)
 
-    def test_repeatable_project_exclusions_do_not_hide_creators_or_reserved_meta(self):
+    def test_path_pattern_can_exclude_projects_without_hiding_their_creator(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)
             source = temporary / "Source"
@@ -211,6 +211,62 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(
                 [item["title"] for item in embedded_data(projects)], ["Keep"]
             )
+
+    def test_exclude_from_removes_underscore_entries_and_prunes_stale_pages(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            source = temporary / "Source"
+            make_image(source / "_Archive" / "Old" / "cover.jpg", "red")
+            make_image(source / "Creator" / "_Draft" / "cover.jpg", "blue")
+            project = source / "Creator" / "Book"
+            make_image(project / "cover.jpg", "green")
+            make_image(project / "_scan.jpg", "purple")
+            make_image(project / "scan.jpg", "orange")
+            ignore_file = source / ".galleryignore"
+            ignore_file.write_text(
+                "# Private collection entries\n_*\n", encoding="utf-8"
+            )
+            output = temporary / "site"
+
+            self.assertEqual(main([str(source), str(output), "--quiet"]), 0)
+            self.assertEqual(len(list((output / "creators").glob("*.html"))), 2)
+            self.assertEqual(len(list((output / "projects").glob("*.html"))), 3)
+
+            self.assertEqual(
+                main(
+                    [
+                        str(source),
+                        str(output),
+                        "--exclude-from",
+                        str(ignore_file),
+                        "--quiet",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(len(list((output / "creators").glob("*.html"))), 1)
+            self.assertEqual(len(list((output / "projects").glob("*.html"))), 1)
+            self.assertEqual(len(list((output / "thumbnails").rglob("*.jpg"))), 2)
+            project_html = generated_page(output, "projects").read_text(
+                encoding="utf-8"
+            )
+            self.assertNotIn("_scan.jpg", project_html)
+            self.assertIn("scan.jpg", project_html)
+
+    def test_invalid_exclusion_pattern_does_not_create_output(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            source = temporary / "Source"
+            source.mkdir()
+            output = temporary / "site"
+
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                self.assertEqual(
+                    main([str(source), str(output), "--exclude", "invalid\\"]), 1
+                )
+            self.assertIn("invalid exclusion pattern", stderr.getvalue())
+            self.assertFalse(output.exists())
 
     def test_global_project_overview_is_ordered_by_project_title(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

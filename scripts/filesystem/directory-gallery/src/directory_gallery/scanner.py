@@ -8,7 +8,7 @@ from typing import DefaultDict, Dict, Iterable, List, Optional, Sequence, Set, T
 
 from .errors import UserError
 from .models import Catalog, CatalogWarning, Creator, MediaGroup, MediaItem, Project
-from .patterns import matches_exclusion
+from .patterns import ExclusionRules
 
 
 ARTWORK_EXTENSIONS = ("jpg", "jpeg", "png")
@@ -69,28 +69,38 @@ def _entries(path: Path) -> List[Path]:
         raise UserError(f"could not read directory {path}: {error}") from error
 
 
-def _directories(path: Path) -> List[Path]:
-    return [entry for entry in _entries(path) if _visible_real_directory(entry)]
+def _directories(path: Path, exclusions: ExclusionRules) -> List[Path]:
+    return [
+        entry
+        for entry in _entries(path)
+        if _visible_real_directory(entry)
+        and not exclusions.excludes(entry, directory=True)
+    ]
 
 
-def _walk_directories(root: Path) -> List[Path]:
+def _walk_directories(root: Path, exclusions: ExclusionRules) -> List[Path]:
     """Return visible real directories breadth-first, including ``root``."""
 
     discovered = [root]
     pending = deque([root])
     while pending:
         directory = pending.popleft()
-        children = _directories(directory)
+        children = _directories(directory, exclusions)
         discovered.extend(children)
         pending.extend(children)
     return discovered
 
 
-def _role_candidates(directory: Path, stem: str) -> List[Path]:
+def _role_candidates(
+    directory: Path, stem: str, exclusions: ExclusionRules
+) -> List[Path]:
     return [
         directory / f"{stem}.{extension}"
         for extension in ARTWORK_EXTENSIONS
         if _visible_real_file(directory / f"{stem}.{extension}")
+        and not exclusions.excludes(
+            directory / f"{stem}.{extension}", directory=False
+        )
     ]
 
 
@@ -99,8 +109,9 @@ def _select_direct_artwork(
     stem: str,
     subject: str,
     warnings: List[CatalogWarning],
+    exclusions: ExclusionRules,
 ) -> Optional[Path]:
-    candidates = _role_candidates(directory, stem)
+    candidates = _role_candidates(directory, stem, exclusions)
     if not candidates:
         warnings.append(
             CatalogWarning(f"missing-{stem}", f"No {stem} image: {subject}")
@@ -122,14 +133,15 @@ def _select_project_cover(
     project: Path,
     subject: str,
     warnings: List[CatalogWarning],
+    exclusions: ExclusionRules,
 ) -> Tuple[Optional[Path], Set[Path]]:
-    direct = _role_candidates(project, "cover")
+    direct = _role_candidates(project, "cover", exclusions)
     if direct:
         candidates = direct
     else:
         candidates = []
-        for directory in _walk_directories(project)[1:]:
-            candidates.extend(_role_candidates(directory, "cover"))
+        for directory in _walk_directories(project, exclusions)[1:]:
+            candidates.extend(_role_candidates(directory, "cover", exclusions))
 
     reserved = set(candidates)
     if not candidates:
@@ -157,33 +169,40 @@ def _media_kind(path: Path) -> Optional[str]:
     return None
 
 
-def _poster_for(video: Path) -> Optional[Path]:
+def _poster_for(video: Path, exclusions: ExclusionRules) -> Optional[Path]:
     for extension in ARTWORK_EXTENSIONS:
         candidate = video.with_name(f"{video.stem}.poster.{extension}")
-        if _visible_real_file(candidate):
+        if _visible_real_file(candidate) and not exclusions.excludes(
+            candidate, directory=False
+        ):
             return candidate
     return None
 
 
-def _iter_media_files(root: Path, recursive: bool) -> Iterable[Tuple[Path, Path]]:
-    directories = _walk_directories(root) if recursive else [root]
+def _iter_media_files(
+    root: Path, recursive: bool, exclusions: ExclusionRules
+) -> Iterable[Tuple[Path, Path]]:
+    directories = _walk_directories(root, exclusions) if recursive else [root]
     for directory in directories:
         relative = directory.relative_to(root)
         for entry in _entries(directory):
-            if _visible_real_file(entry):
+            if _visible_real_file(entry) and not exclusions.excludes(
+                entry, directory=False
+            ):
                 yield relative, entry
 
 
 def _group_media(
     sources: Iterable[Tuple[Optional[Path], Path]],
     reserved: Set[Path],
+    exclusions: ExclusionRules,
 ) -> Tuple[MediaGroup, ...]:
     discovered = list(sources)
     posters = {
         poster
         for _, path in discovered
         if _media_kind(path) == "video"
-        for poster in [_poster_for(path)]
+        for poster in [_poster_for(path, exclusions)]
         if poster is not None
     }
     grouped: DefaultDict[Tuple[str, Optional[Path]], List[MediaItem]] = defaultdict(list)
@@ -199,7 +218,7 @@ def _group_media(
                 name=path.name,
                 path=path,
                 kind=kind,
-                poster=_poster_for(path) if kind == "video" else None,
+                poster=_poster_for(path, exclusions) if kind == "video" else None,
             )
         )
 
@@ -222,46 +241,60 @@ def _group_media(
     return tuple(groups)
 
 
-def _creator_media(creator: Path, portrait_files: Set[Path]) -> Tuple[MediaGroup, ...]:
+def _creator_media(
+    creator: Path, portrait_files: Set[Path], exclusions: ExclusionRules
+) -> Tuple[MediaGroup, ...]:
     sources: List[Tuple[Optional[Path], Path]] = []
-    for _, path in _iter_media_files(creator, recursive=False):
+    for _, path in _iter_media_files(creator, recursive=False, exclusions=exclusions):
         sources.append((None, path))
 
     meta = creator / CREATOR_CONTENT_DIRECTORY
-    if _visible_real_directory(meta):
-        for relative, path in _iter_media_files(meta, recursive=True):
+    if _visible_real_directory(meta) and not exclusions.excludes(
+        meta, directory=True
+    ):
+        for relative, path in _iter_media_files(
+            meta, recursive=True, exclusions=exclusions
+        ):
             sources.append((None if relative == Path(".") else relative, path))
 
-    return _group_media(sources, portrait_files)
+    return _group_media(sources, portrait_files, exclusions)
 
 
-def _project_media(project: Path, cover_files: Set[Path]) -> Tuple[MediaGroup, ...]:
+def _project_media(
+    project: Path, cover_files: Set[Path], exclusions: ExclusionRules
+) -> Tuple[MediaGroup, ...]:
     sources = (
         (None if relative == Path(".") else relative, path)
-        for relative, path in _iter_media_files(project, recursive=True)
+        for relative, path in _iter_media_files(
+            project, recursive=True, exclusions=exclusions
+        )
     )
-    return _group_media(sources, cover_files)
+    return _group_media(sources, cover_files, exclusions)
 
 
-def _readme(directory: Path) -> Optional[Path]:
+def _readme(directory: Path, exclusions: ExclusionRules) -> Optional[Path]:
     candidate = directory / README_NAME
-    return candidate if _visible_real_file(candidate) else None
+    return (
+        candidate
+        if _visible_real_file(candidate)
+        and not exclusions.excludes(candidate, directory=False)
+        else None
+    )
 
 
-def creator_paths(root: Path) -> List[Path]:
+def creator_paths(root: Path, exclusions: ExclusionRules) -> List[Path]:
     """Return eligible creator directories in deterministic order."""
 
-    return _directories(root)
+    return _directories(root, exclusions)
 
 
-def project_paths(creator: Path, exclusions: Sequence[str]) -> List[Path]:
+def project_paths(creator: Path, exclusions: ExclusionRules) -> List[Path]:
     """Return eligible project directories for one creator."""
 
     return [
         path
-        for path in _directories(creator)
+        for path in _directories(creator, exclusions)
         if path.name != CREATOR_CONTENT_DIRECTORY
-        and not matches_exclusion(creator.name, path.name, exclusions)
     ]
 
 
@@ -269,53 +302,56 @@ def scan_project(
     creator_name: str,
     project_path: Path,
     warnings: List[CatalogWarning],
+    exclusions: ExclusionRules,
 ) -> Project:
     """Scan one project and keep only that project's media in memory."""
 
     subject = f"{creator_name} / {project_path.name}"
-    cover, cover_files = _select_project_cover(project_path, subject, warnings)
+    cover, cover_files = _select_project_cover(
+        project_path, subject, warnings, exclusions
+    )
     return Project(
         name=project_path.name,
         path=project_path,
         cover=cover,
-        readme=_readme(project_path),
-        media=_project_media(project_path, cover_files),
+        readme=_readme(project_path, exclusions),
+        media=_project_media(project_path, cover_files, exclusions),
     )
 
 
 def scan_creator(
     creator_path: Path,
     warnings: List[CatalogWarning],
+    exclusions: ExclusionRules,
     projects: Sequence[Project] = (),
 ) -> Creator:
     """Scan creator-level metadata and media without entering projects."""
 
-    portrait_files = set(_role_candidates(creator_path, "portrait"))
+    portrait_files = set(_role_candidates(creator_path, "portrait", exclusions))
     portrait = _select_direct_artwork(
-        creator_path, "portrait", creator_path.name, warnings
+        creator_path, "portrait", creator_path.name, warnings, exclusions
     )
     return Creator(
         name=creator_path.name,
         path=creator_path,
         portrait=portrait,
-        readme=_readme(creator_path),
+        readme=_readme(creator_path, exclusions),
         projects=tuple(projects),
-        media=_creator_media(creator_path, portrait_files),
+        media=_creator_media(creator_path, portrait_files, exclusions),
     )
 
 
-def scan_catalog(root: Path, exclusions: Sequence[str]) -> Catalog:
+def scan_catalog(root: Path, patterns: Sequence[str]) -> Catalog:
     """Build an in-memory catalog for small callers and focused tests."""
 
     warnings: List[CatalogWarning] = []
     creators: List[Creator] = []
-    for creator_path in creator_paths(root):
+    exclusions = ExclusionRules(root, patterns)
+    for creator_path in creator_paths(root, exclusions):
         projects = [
-            scan_project(creator_path.name, project_path, warnings)
+            scan_project(creator_path.name, project_path, warnings, exclusions)
             for project_path in project_paths(creator_path, exclusions)
         ]
-        creators.append(
-            scan_creator(creator_path, warnings, projects)
-        )
+        creators.append(scan_creator(creator_path, warnings, exclusions, projects))
 
     return Catalog(root=root, creators=tuple(creators), warnings=tuple(warnings))

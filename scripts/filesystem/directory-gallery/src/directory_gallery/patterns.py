@@ -1,47 +1,71 @@
-"""Validation and matching for repeatable project exclusions."""
+"""Gitignore-style exclusions relative to the input collection."""
 
 from __future__ import annotations
 
-import fnmatch
-from typing import Sequence
+from pathlib import Path
+from typing import List, Optional, Sequence, Tuple
+
+from pathspec import GitIgnoreSpec
 
 from .errors import UserError
 
 
-def validate_exclusions(patterns: Sequence[str]) -> None:
-    for pattern in patterns:
-        if not pattern:
-            raise UserError("exclusion patterns must not be empty")
-        if "\\" in pattern:
-            raise UserError(
-                f"invalid exclusion pattern {pattern!r}: use '/' as the separator"
-            )
-        if "**" in pattern:
-            raise UserError(
-                f"invalid exclusion pattern {pattern!r}: '**' is not supported"
-            )
-
-        components = pattern.split("/")
-        if len(components) > 2 or any(not component for component in components):
-            raise UserError(
-                f"invalid exclusion pattern {pattern!r}: "
-                "use PROJECT or CREATOR/PROJECT"
-            )
+ExclusionSource = Tuple[str, str]
 
 
-def matches_exclusion(
-    creator_name: str, project_name: str, patterns: Sequence[str]
-) -> bool:
-    for pattern in patterns:
-        if "/" not in pattern:
-            if fnmatch.fnmatchcase(project_name, pattern):
+def load_exclusion_patterns(sources: Sequence[ExclusionSource]) -> List[str]:
+    """Expand inline patterns and pattern files in command-line order."""
+
+    patterns: List[str] = []
+    for kind, value in sources:
+        if kind == "pattern":
+            if not value or "\n" in value or "\r" in value:
+                raise UserError("--exclude requires one nonempty pattern")
+            patterns.append(value)
+        elif kind == "file":
+            file = Path(value).expanduser()
+            try:
+                contents = file.read_text(encoding="utf-8-sig")
+            except (OSError, UnicodeError) as error:
+                raise UserError(
+                    f"could not read exclusion file {file}: {error}"
+                ) from error
+            patterns.extend(contents.splitlines())
+        else:
+            raise ValueError(f"unknown exclusion source: {kind}")
+    return patterns
+
+
+class ExclusionRules:
+    """Match input-relative paths while allowing traversal to prune directories."""
+
+    def __init__(self, root: Path, patterns: Sequence[str]) -> None:
+        self.root = root
+        try:
+            self._spec: Optional[GitIgnoreSpec] = (
+                GitIgnoreSpec.from_lines(patterns) if patterns else None
+            )
+        except ValueError as error:
+            raise UserError(f"invalid exclusion pattern: {error}") from error
+
+    def excludes(self, path: Path, *, directory: bool) -> bool:
+        if self._spec is None:
+            return False
+        relative = path.relative_to(self.root)
+        if relative == Path("."):
+            return False
+        name = relative.as_posix() + ("/" if directory else "")
+        return self._spec.match_file(name)
+
+    def excludes_file_or_parent(self, path: Path) -> bool:
+        """Prevent README links from reviving files below excluded directories."""
+
+        if self._spec is None:
+            return False
+        relative = path.relative_to(self.root)
+        current = self.root
+        for part in relative.parts[:-1]:
+            current /= part
+            if self.excludes(current, directory=True):
                 return True
-            continue
-
-        creator_pattern, project_pattern = pattern.split("/", 1)
-        if fnmatch.fnmatchcase(
-            creator_name, creator_pattern
-        ) and fnmatch.fnmatchcase(project_name, project_pattern):
-            return True
-
-    return False
+        return self.excludes(path, directory=False)

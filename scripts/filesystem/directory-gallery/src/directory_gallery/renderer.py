@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 from .models import CatalogWarning, Creator, MediaGroup, MediaItem, Project
 from .output import write_text_atomic
+from .patterns import ExclusionRules
 from .readme import render_readme
 from .scanner import creator_paths, project_paths, scan_creator, scan_project
 from .state import CatalogState
@@ -497,6 +498,7 @@ def _render_project(
     previews: Mapping[Path, Optional[str]],
     warnings: List[CatalogWarning],
     overview: str,
+    exclusions: ExclusionRules,
 ) -> str:
     artwork = _artwork(
         cover, "cover", project.name, f"Cover for {project.name}", output, page
@@ -513,7 +515,7 @@ def _render_project(
     header = _detail_header(
         "Project", project.name, creator.name, artwork, "cover", breadcrumb
     )
-    readme = render_readme(project.readme, project.path, page, warnings)
+    readme = render_readme(project.readme, project.path, page, warnings, exclusions)
     rows = _media_rows(project.media, page, output, previews)
     if not rows:
         rows = '<p class="empty-state">No supported media.</p>'
@@ -539,6 +541,7 @@ def _render_creator(
     previews: Mapping[Path, Optional[str]],
     warnings: List[CatalogWarning],
     overview: str,
+    exclusions: ExclusionRules,
 ) -> str:
     artwork = _artwork(
         portrait,
@@ -561,7 +564,7 @@ def _render_creator(
         "portrait",
         breadcrumb,
     )
-    readme = render_readme(creator.readme, creator.path, page, warnings)
+    readme = render_readme(creator.readme, creator.path, page, warnings, exclusions)
     rows = []
     if projects:
         rows.append(
@@ -701,14 +704,14 @@ def build_site(
     input_root: Path,
     output: Path,
     title: str,
-    exclusions: Sequence[str],
+    exclusions: ExclusionRules,
     overview: str = "separate",
     quiet: bool = False,
 ) -> BuildResult:
     if overview not in {"separate", "grouped"}:
         raise ValueError(f"unknown overview mode: {overview}")
     warnings = WarningLog()
-    creators = creator_paths(input_root)
+    creators = creator_paths(input_root, exclusions)
     progress = ProgressReporter(len(creators), enabled=not quiet)
     project_count = 0
     media_count = 0
@@ -719,7 +722,7 @@ def build_site(
         progress.attach_cache(cache)
 
         for creator_path in creators:
-            creator = scan_creator(creator_path, warnings)
+            creator = scan_creator(creator_path, warnings, exclusions)
             creator_page = _creator_page(output, creator_path)
             portrait = (
                 cache.thumbnail_for(creator.portrait) if creator.portrait else None
@@ -731,7 +734,7 @@ def build_site(
             summaries: List[ProjectSummary] = []
 
             for project_path in project_paths(creator_path, exclusions):
-                project = scan_project(creator.name, project_path, warnings)
+                project = scan_project(creator.name, project_path, warnings, exclusions)
                 page = _project_page(output, project_path)
                 cover = cache.thumbnail_for(project.cover) if project.cover else None
                 project_media_count = _media_count(project.media)
@@ -751,6 +754,7 @@ def build_site(
                     previews,
                     warnings,
                     overview,
+                    exclusions,
                 )
                 _write_generated(state, output, page, document)
                 relative_page = page.relative_to(output).as_posix()
@@ -775,6 +779,7 @@ def build_site(
                 creator_previews,
                 warnings,
                 overview,
+                exclusions,
             )
             _write_generated(state, output, creator_page, creator_document)
             state.record_creator(

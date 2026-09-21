@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from directory_gallery.patterns import ExclusionRules
 from directory_gallery.readme import render_readme
 
 
@@ -44,3 +45,29 @@ class ReadmeTests(unittest.TestCase):
             warnings = []
             self.assertEqual(render_readme(None, root, root / "page.html", warnings), "")
             self.assertEqual(warnings, [])
+
+    def test_excluded_local_media_links_are_disabled(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "Creator"
+            source.mkdir()
+            (source / "Private").mkdir()
+            (source / "private.jpg").touch()
+            (source / "Private" / "nested.jpg").touch()
+            (source / "public.jpg").touch()
+            readme = source / "README.md"
+            readme.write_text(
+                "[private](private.jpg) [nested](Private/nested.jpg) "
+                "[public](public.jpg)",
+                encoding="utf-8",
+            )
+            exclusions = ExclusionRules(
+                root, ["private.jpg", "Private/", "!nested.jpg"]
+            )
+
+            rendered = render_readme(
+                readme, source, root / "site" / "page.html", [], exclusions
+            )
+
+            self.assertEqual(rendered.count('href="#"'), 2)
+            self.assertIn("public.jpg", rendered)

@@ -1,6 +1,6 @@
 # Directory Gallery specification
 
-Status: implemented for version 0.6.0
+Status: implemented for version 0.7.0
 
 ## Source model
 
@@ -136,13 +136,24 @@ Status: implemented for version 0.6.0
 ## Command line and exclusions
 
 - `INPUT_FOLDER` and `OUTPUT_FOLDER` are required positional arguments.
-- `--exclude PATTERN` is optional and repeatable and applies only to projects.
-- A pattern without `/` matches project names.
-- A pattern with `/` has one creator and one project component.
-- Matching is case-sensitive; `*`, `?`, and `fnmatch` character classes are
-  supported inside a component and never cross `/`.
-- Backslashes, `**`, empty patterns, empty components, and more than two
-  components are rejected.
+- `--exclude PATTERN` and `--exclude-from FILE` are optional and repeatable.
+- Pattern files are UTF-8, one Gitignore-style pattern per line. Blank lines
+  and `#` comments are ignored. A UTF-8 BOM is accepted. They are read only
+  when explicitly named; relative file paths resolve from the working directory.
+- Patterns from both options are expanded in command-line order. The last
+  matching pattern wins, with `!` negating a previous exclusion. A child of an
+  excluded directory cannot be re-included unless its parent is re-included.
+- Matching is case-sensitive and relative to `INPUT_FOLDER`. A pattern without
+  `/` matches a basename at any depth; leading `/` anchors to the input root;
+  trailing `/` matches directories only. `*`, `?`, character classes, and `**`
+  use Gitignore-style matching.
+- Exclusions apply before traversing creator and project directories, and to
+  nested directories, allowed media, role artwork, video posters, and READMEs.
+  Local README links to excluded media are disabled. Hidden entries and
+  symbolic links remain excluded independently of patterns.
+- The reserved creator child `meta` is not a project and can be excluded.
+- Empty inline patterns are rejected. No `.gitignore` or `.galleryignore`
+  is read automatically.
 - `--title TEXT` overrides the catalog title.
 - `--overview {separate,grouped}` selects the overview structure and defaults
   to `separate`.

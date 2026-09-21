@@ -18,6 +18,29 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(arguments.overview, "grouped")
 
+    def test_exclusion_patterns_and_files_keep_command_line_order(self):
+        arguments = build_parser().parse_args(
+            [
+                "input",
+                "output",
+                "--exclude",
+                "_*",
+                "--exclude-from",
+                ".galleryignore",
+                "--exclude",
+                "!_keep.jpg",
+            ]
+        )
+
+        self.assertEqual(
+            arguments.exclusion_sources,
+            [
+                ("pattern", "_*"),
+                ("file", ".galleryignore"),
+                ("pattern", "!_keep.jpg"),
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

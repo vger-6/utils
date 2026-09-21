@@ -77,19 +77,43 @@ usually more important than creator portraits. A creator portrait is shown
 above its projects when present and omitted entirely when missing. Both modes
 retain the creator and project detail pages.
 
-Exclude projects with repeatable, case-sensitive patterns:
+Exclude any creator, project, nested directory, or file with repeatable
+[Gitignore-style patterns](https://git-scm.com/docs/gitignore):
 
 ```bash
 directory-gallery INPUT_FOLDER OUTPUT_FOLDER \
-  --exclude Drafts \
-  --exclude "Creator A/Archive" \
-  --exclude "Creator B/*"
+  --exclude '_*' \
+  --exclude 'Drafts/' \
+  --exclude '/Creator A/Archive/'
 ```
 
-A pattern without `/` matches project names. A pattern with `/` matches a
-creator/project pair. `*`, `?`, and character classes work within one path
-component. `**`, backslashes, and empty components are rejected. The reserved
-`meta` directory is never a project and does not need an exclusion.
+`_*` excludes every underscore-prefixed file or folder at any depth. A pattern
+without `/` matches names anywhere; a leading `/` anchors it to `INPUT_FOLDER`;
+a trailing `/` matches directories only. `*`, `?`, character classes, and `**`
+have Gitignore meanings. Matching is case-sensitive. Quote patterns so the
+shell does not expand them. The last matching pattern wins; prefix a pattern
+with `!` to re-include an entry, provided its parent directory was not excluded.
+
+For reusable rules, put one pattern per line in a file and pass it explicitly:
+
+```text
+# .galleryignore
+_*
+*.tmp
+Drafts/
+```
+
+```bash
+directory-gallery INPUT_FOLDER OUTPUT_FOLDER \
+  --exclude-from INPUT_FOLDER/.galleryignore
+```
+
+`--exclude-from` can be repeated and mixed with `--exclude`; rules are applied
+in command-line order. Relative pattern-file paths are relative to the current
+working directory. The program does not read `.gitignore` or `.galleryignore`
+automatically. Dot-prefixed entries and symbolic links remain ignored even
+without patterns. The reserved creator child `meta` is never a project, but it
+can itself be excluded.
 
 Open `OUTPUT_FOLDER/index.html` locally in a browser after generation. Media
 remains in the source collection, so the catalog is intended for local

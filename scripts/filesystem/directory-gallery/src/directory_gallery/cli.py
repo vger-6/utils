@@ -10,8 +10,16 @@ from typing import Optional, Sequence
 from . import __version__
 from .errors import UserError
 from .output import prepare_output, resolve_paths
-from .patterns import validate_exclusions
+from .patterns import ExclusionRules, ExclusionSource, load_exclusion_patterns
 from .renderer import build_site
+
+
+def _inline_exclusion(value: str) -> ExclusionSource:
+    return "pattern", value
+
+
+def _exclusion_file(value: str) -> ExclusionSource:
+    return "file", value
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,9 +30,9 @@ def build_parser() -> argparse.ArgumentParser:
             "CREATOR/PROJECT directory tree."
         ),
         epilog=(
-            "--exclude is repeatable. Patterns use '/' between creator and "
-            "project on every platform; examples: --exclude Drafts, "
-            "--exclude 'Creator/Archive', --exclude 'Creator/*'. "
+            "Exclusions use Gitignore-style patterns relative to INPUT_FOLDER. "
+            "Examples: --exclude '_*', --exclude 'Drafts/', "
+            "--exclude '/Creator/Archive/', or --exclude-from .galleryignore. "
             "The exact creator child directory 'meta' is reserved and is "
             "never treated as a project."
         ),
@@ -35,9 +43,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--exclude",
         action="append",
+        dest="exclusion_sources",
         default=[],
+        type=_inline_exclusion,
         metavar="PATTERN",
-        help="exclude a PROJECT or CREATOR/PROJECT pattern; repeat as needed",
+        help="Gitignore-style pattern for any input entry; repeat as needed",
+    )
+    parser.add_argument(
+        "--exclude-from",
+        action="append",
+        dest="exclusion_sources",
+        type=_exclusion_file,
+        metavar="FILE",
+        help="read ordered exclusion patterns from FILE; repeat as needed",
     )
     parser.add_argument(
         "--title",
@@ -63,15 +81,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run(arguments: argparse.Namespace) -> int:
-    validate_exclusions(arguments.exclude)
+    patterns = load_exclusion_patterns(arguments.exclusion_sources)
     input_root, output = resolve_paths(arguments.input, arguments.output)
+    exclusions = ExclusionRules(input_root, patterns)
     prepare_output(output)
     default_title = input_root.name or str(input_root)
     result = build_site(
         input_root,
         output,
         arguments.title or default_title,
-        arguments.exclude,
+        exclusions,
         overview=arguments.overview,
         quiet=arguments.quiet,
     )
