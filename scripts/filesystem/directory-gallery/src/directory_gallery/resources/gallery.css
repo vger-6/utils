@@ -484,6 +484,72 @@ input::placeholder {
   min-width: 0;
 }
 
+.collaboration-members {
+  margin-top: 22px;
+}
+
+.collaboration-members h2 {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 760;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.member-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.member-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 12px 5px 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  font-size: 0.84rem;
+  font-weight: 620;
+}
+
+a.member-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--accent);
+}
+
+.member-chip.is-unlinked {
+  color: var(--muted);
+}
+
+.member-avatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.member-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 25%;
+}
+
+.member-avatar .image-placeholder {
+  font-size: 1rem;
+}
+
+.member-name {
+  overflow-wrap: anywhere;
+}
+
 .readme-container {
   max-width: 920px;
   margin: 4px 0 46px;
@@ -689,6 +755,16 @@ input::placeholder {
 .project-row .rail-track {
   --rail-art-height: 225px;
   --rail-card-gap: 11px;
+}
+
+.collaboration-row .rail-track {
+  height: calc(var(--rail-art-height) + var(--rail-card-gap) + 3.73rem + 20px + 1.5rem);
+}
+
+.collaboration-row .overview-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rail-canvas {

@@ -64,6 +64,16 @@ class FrontendTests(unittest.TestCase):
                 '</section>'
             )
 
+        credit = "A collaboration with an unusually long creator credit " * 2
+        rows.append(
+            '<section class="content-row project-row collaboration-row">'
+            '<button data-rail-previous></button><button data-rail-next></button>'
+            '<div class="rail-track" data-rail-track>'
+            '<div class="rail-canvas" data-rail-canvas></div></div>'
+            f'<script type="application/json" data-rail-data>{json.dumps([{"kind": "project", "title": name, "href": "#collaboration", "placeholder": "A", "meta": credit}])}</script>'
+            '</section>'
+        )
+
         catalog_creators = [
             {"title": "Alice", "search": "alice", "initial": "A", "href": "#alice", "image": "#portrait", "placeholder": "A", "projects": []},
             {"title": "Bob", "search": "bob", "initial": "B", "href": "#bob", "image": None, "placeholder": "B", "projects": []},
@@ -116,6 +126,14 @@ projectCard.dispatchEvent(new PointerEvent("pointerenter", {{pointerType: "touch
 results.tooltip.hiddenOnTouch = tooltip.hidden;
 const overviewLabel = document.querySelector(".overview-card .overview-title");
 results.overview = {{clamp: getComputedStyle(overviewLabel).webkitLineClamp}};
+const collaborationRow = document.querySelector(".collaboration-row");
+const collaborationTrack = collaborationRow.querySelector(".rail-track");
+const collaborationCredit = collaborationRow.querySelector(".overview-meta");
+results.collaboration = {{
+  verticalOverflow: collaborationTrack.scrollHeight > collaborationTrack.clientHeight,
+  fullCredit: collaborationCredit.textContent === {json.dumps(credit)} && collaborationCredit.title === {json.dumps(credit)},
+  ellipsized: collaborationCredit.scrollWidth > collaborationCredit.clientWidth,
+}};
 const dialog = document.querySelector("#dialog");
 const lightboxTitle = document.querySelector("#lightbox-title");
 results.lightbox = {{
@@ -159,6 +177,11 @@ document.querySelector("#result").textContent = JSON.stringify(results);
                         "hiddenOnTouch": True,
                     })
                     self.assertEqual(layout["overview"]["clamp"], "none")
+                    self.assertEqual(layout["collaboration"], {
+                        "verticalOverflow": False,
+                        "fullCredit": True,
+                        "ellipsized": True,
+                    })
                     self.assertEqual(layout["lightbox"], {
                         "full": True,
                         "wrapped": True,
@@ -328,4 +351,68 @@ window.addEventListener("DOMContentLoaded", () => {
                 "creatorView": True,
                 "creators": ["Creator A", "Creator B", "Creator C"],
                 "projectsHidden": True,
+            })
+
+    def test_shared_project_is_listed_per_creator_but_once_globally(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            source = temporary / "source"
+            (source / "Artist A").mkdir(parents=True)
+            (source / "Artist B").mkdir()
+            (source / "Artist A & Artist B" / "Shared Album").mkdir(parents=True)
+            output = temporary / "site"
+            self.assertEqual(
+                main([str(source), str(output), "--link-collaborations", "--quiet"]),
+                0,
+            )
+            index = output / "index.html"
+            probe = '''<pre id="result"></pre><script>
+window.addEventListener("DOMContentLoaded", () => {
+  const grid = document.querySelector("[data-catalog-project-grid]");
+  const list = document.querySelector("[data-catalog-creator-list]");
+  const summary = () => document.querySelector(".overview-header .summary").innerText.trim();
+  const cards = [...grid.querySelectorAll(".project-overview-card")];
+  const result = {
+    allProjects: {
+      count: cards.length,
+      credit: cards[0].querySelector(".overview-meta").textContent,
+      summary: summary(),
+    },
+  };
+  document.querySelector('[data-catalog-view="creators"]').click();
+  result.byCreator = {
+    summary: summary(),
+    sections: [...list.querySelectorAll(".grouped-creator")].map((section) => {
+      const row = section.querySelector(".project-row");
+      return {
+        name: section.querySelector("h2").textContent,
+        count: row._railData.length,
+        title: row._railData[0].title,
+        credit: row._railData[0].meta || null,
+        renderedCredit: row.querySelector(".project-card .overview-meta")?.textContent || null,
+        expandedTrack: row.classList.contains("collaboration-row"),
+      };
+    }),
+  };
+  document.querySelector("#result").textContent = JSON.stringify(result);
+});
+</script>'''
+            index.write_text(
+                index.read_text(encoding="utf-8").replace("</body>", probe + "</body>"),
+                encoding="utf-8",
+            )
+
+            result = self.browser_result(index, temporary / "profile-shared", 1280)
+            self.assertEqual(result["allProjects"], {
+                "count": 1,
+                "credit": "Artist A & Artist B",
+                "summary": "1 project",
+            })
+            self.assertEqual(result["byCreator"], {
+                "summary": "3 creators · 1 project",
+                "sections": [
+                    {"name": "Artist A", "count": 1, "title": "Shared Album", "credit": "Artist A & Artist B", "renderedCredit": "Artist A & Artist B", "expandedTrack": True},
+                    {"name": "Artist A & Artist B", "count": 1, "title": "Shared Album", "credit": None, "renderedCredit": None, "expandedTrack": False},
+                    {"name": "Artist B", "count": 1, "title": "Shared Album", "credit": "Artist A & Artist B", "renderedCredit": "Artist A & Artist B", "expandedTrack": True},
+                ],
             })

@@ -168,6 +168,160 @@ class IntegrationTests(unittest.TestCase):
                 )
             )
 
+    def test_opt_in_collaboration_links_use_sqlite_without_source_changes(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            source = temporary / "Source"
+            first = "Dietrich Fischer-Dieskau"
+            second = "Jörg Demus"
+            full = f"{first} & {second}"
+            partial = f"{first} & Guest Artist"
+            band = "Earth, Wind & Fire"
+            (source / first / "Solo Album").mkdir(parents=True)
+            (source / second).mkdir()
+            (source / full / "Shared Album").mkdir(parents=True)
+            (source / partial / "Guest Album").mkdir(parents=True)
+            (source / band / "Band Album").mkdir(parents=True)
+            make_image(source / first / "portrait.jpg", "red")
+            make_image(source / second / "portrait.jpg", "blue")
+            make_image(source / full / "Shared Album" / "cover.jpg", "green")
+            make_image(source / partial / "Guest Album" / "cover.jpg", "yellow")
+            output = temporary / "site"
+            original_entries = {
+                path.relative_to(source) for path in source.rglob("*")
+            }
+
+            def catalog():
+                items = embedded_data(
+                    (output / "index.html").read_text(encoding="utf-8"),
+                    'id="catalog-data"',
+                )
+                return {item["title"]: item for item in items}
+
+            self.assertEqual(main([str(source), str(output), "--quiet"]), 0)
+            entries = catalog()
+            first_page = output / entries[first]["href"]
+            self.assertNotIn(
+                ">Collaborations</h2>", first_page.read_text(encoding="utf-8")
+            )
+            with sqlite3.connect(output / DATABASE_NAME) as database:
+                self.assertEqual(
+                    database.execute("SELECT count(*) FROM collaboration_members").fetchone()[0],
+                    0,
+                )
+
+            self.assertEqual(
+                main([str(source), str(output), "--link-collaborations", "--quiet"]),
+                0,
+            )
+            entries = catalog()
+            self.assertEqual(sum(len(item["projects"]) for item in entries.values()), 7)
+            self.assertEqual(
+                len({project["href"] for item in entries.values() for project in item["projects"]}),
+                4,
+            )
+            creator_cards = embedded_data(
+                (output / "creators.html").read_text(encoding="utf-8")
+            )
+            creator_counts = {item["title"]: item["meta"] for item in creator_cards}
+            self.assertEqual(creator_counts[first], "3 projects")
+            self.assertEqual(creator_counts[second], "1 project")
+            first_html = first_page.read_text(encoding="utf-8")
+            self.assertIn("3 projects", first_html)
+            self.assertEqual(first_html.count(">Projects</h2>"), 1)
+            self.assertNotIn(">Collaborations</h2>", first_html)
+            rows = rail_data(first_html)
+            self.assertEqual(
+                [(item["title"], item.get("meta")) for item in rows[0]],
+                [
+                    ("Guest Album", partial),
+                    ("Shared Album", full),
+                    ("Solo Album", None),
+                ],
+            )
+            second_html = (output / entries[second]["href"]).read_text(encoding="utf-8")
+            self.assertIn("1 project", second_html)
+            self.assertEqual(
+                [item["title"] for item in rail_data(second_html)[0]],
+                ["Shared Album"],
+            )
+
+            full_html = (output / entries[full]["href"]).read_text(encoding="utf-8")
+            self.assertIn('aria-label="Collaboration members"', full_html)
+            self.assertEqual(full_html.count('<a class="member-chip"'), 2)
+            self.assertIn(
+                f'href="{Path(entries[first]["href"]).name}"', full_html
+            )
+            self.assertIn(
+                f'href="{Path(entries[second]["href"]).name}"', full_html
+            )
+            self.assertIn('class="member-avatar"><img', full_html)
+            self.assertEqual(
+                (output / entries[band]["href"]).read_text(encoding="utf-8")
+                .count('class="member-chip"'),
+                0,
+            )
+            project_page = output / entries[full]["projects"][0]["href"]
+            self.assertEqual(
+                project_page.read_text(encoding="utf-8").count('<a class="member-chip"'),
+                2,
+            )
+            partial_html = (output / entries[partial]["href"]).read_text(encoding="utf-8")
+            self.assertEqual(partial_html.count('<a class="member-chip"'), 1)
+            self.assertIn('<span class="member-chip is-unlinked">', partial_html)
+            self.assertIn('Guest Artist</span>', partial_html)
+            with sqlite3.connect(output / DATABASE_NAME) as database:
+                self.assertEqual(
+                    database.execute("SELECT count(*) FROM collaboration_members").fetchone()[0],
+                    4,
+                )
+
+            self.assertEqual(
+                main([
+                    str(source), str(output), "--link-collaborations",
+                    "--exclude", f"/{second}/", "--quiet",
+                ]),
+                0,
+            )
+            entries = catalog()
+            self.assertNotIn(second, entries)
+            full_html = (output / entries[full]["href"]).read_text(encoding="utf-8")
+            self.assertEqual(full_html.count('<a class="member-chip"'), 1)
+            self.assertIn(f'{second}</span>', full_html)
+
+            self.assertEqual(
+                main([
+                    str(source), str(output), "--link-collaborations",
+                    "--no-creator-grid", "--quiet",
+                ]),
+                0,
+            )
+            self.assertFalse((output / "creators.html").exists())
+            entries = catalog()
+            self.assertEqual(
+                (output / entries[full]["href"])
+                .read_text(encoding="utf-8")
+                .count('<a class="member-chip"'),
+                2,
+            )
+
+            self.assertEqual(main([str(source), str(output), "--quiet"]), 0)
+            entries = catalog()
+            first_html = (output / entries[first]["href"]).read_text(encoding="utf-8")
+            self.assertEqual(
+                [item["title"] for item in rail_data(first_html)[0]],
+                ["Solo Album"],
+            )
+            with sqlite3.connect(output / DATABASE_NAME) as database:
+                self.assertEqual(
+                    database.execute("SELECT count(*) FROM collaboration_members").fetchone()[0],
+                    0,
+                )
+            self.assertEqual(
+                {path.relative_to(source) for path in source.rglob("*")},
+                original_entries,
+            )
+
     def test_removes_stale_generated_pages_and_cached_thumbnails(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)

@@ -288,6 +288,15 @@ def creator_paths(root: Path, exclusions: ExclusionRules) -> List[Path]:
     return _directories(root, exclusions)
 
 
+def creator_portrait_candidate(
+    creator: Path, exclusions: ExclusionRules
+) -> Optional[Path]:
+    """Select a portrait for early indexing; normal scanning reports notices."""
+
+    candidates = _role_candidates(creator, "portrait", exclusions)
+    return candidates[0] if candidates else None
+
+
 def project_paths(creator: Path, exclusions: ExclusionRules) -> List[Path]:
     """Return eligible project directories for one creator."""
 

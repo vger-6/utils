@@ -421,6 +421,13 @@
       title.className = "overview-title";
       title.textContent = item.title;
       copy.append(title);
+      if (item.meta) {
+        const meta = document.createElement("span");
+        meta.className = "overview-meta";
+        meta.textContent = item.meta;
+        meta.title = item.meta;
+        copy.append(meta);
+      }
       card.append(copy);
       attachRailTooltip(card, title);
       return card;
@@ -532,7 +539,9 @@
 
   const createProjectRail = (projects) => {
     const row = document.createElement("section");
-    row.className = "content-row project-row grouped-project-row";
+    row.className = projects.some((project) => project.meta)
+      ? "content-row project-row grouped-project-row collaboration-row"
+      : "content-row project-row grouped-project-row";
     row.dataset.contentKind = "project";
     row._railData = projects;
 
@@ -633,13 +642,22 @@
       if (left === right) return 0;
       return left < right ? -1 : 1;
     };
-    const projectItems = catalogData.flatMap((creator) =>
-      creator.projects.map((project) => ({
-        ...project,
-        meta: creator.title,
-        search: `${project.search} ${creator.search}`,
-      })),
-    );
+    const projectsByHref = new Map();
+    catalogData.forEach((creator) => {
+      creator.projects.forEach((project) => {
+        const existing = projectsByHref.get(project.href);
+        if (existing) {
+          existing.search += ` ${creator.search}`;
+        } else {
+          projectsByHref.set(project.href, {
+            ...project,
+            meta: project.credit || creator.title,
+            search: `${project.search} ${creator.search}`,
+          });
+        }
+      });
+    });
+    const projectItems = [...projectsByHref.values()];
     projectItems.sort(
       (a, b) => compareNames(a.title, b.title) || compareNames(a.meta, b.meta),
     );
@@ -710,10 +728,11 @@
       currentPage = 0;
       renderPage();
 
-      const projectCount = filteredCreators.reduce(
-        (count, entry) => count + entry.projects.length,
-        0,
-      );
+      const visibleProjectPaths = new Set();
+      filteredCreators.forEach((entry) => {
+        entry.projects.forEach((project) => visibleProjectPaths.add(project.href));
+      });
+      const projectCount = visibleProjectPaths.size;
       const count = view === "projects" ? filteredProjects.length : filteredCreators.length;
       if (visibleItems) visibleItems.textContent = String(count);
       if (visibleLabel) {

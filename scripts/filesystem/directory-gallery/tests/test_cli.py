@@ -18,6 +18,15 @@ class CliTests(unittest.TestCase):
 
         self.assertFalse(arguments.creator_grid)
 
+    def test_collaboration_links_are_opt_in(self):
+        parser = build_parser()
+
+        self.assertFalse(parser.parse_args(["input", "output"]).link_collaborations)
+        self.assertTrue(
+            parser.parse_args(["input", "output", "--link-collaborations"])
+            .link_collaborations
+        )
+
     def test_exclusion_patterns_and_files_keep_command_line_order(self):
         arguments = build_parser().parse_args(
             [

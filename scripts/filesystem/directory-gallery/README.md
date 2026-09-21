@@ -78,6 +78,16 @@ usually more important than creator portraits. By creator headings show a
 circular portrait when present, or an initial otherwise. The creator and
 project detail pages are always generated.
 
+For a collection that names collaborations like `Artist A & Artist B`, enable
+cross-links between collaboration projects and existing member creators:
+
+```bash
+directory-gallery INPUT_FOLDER OUTPUT_FOLDER --link-collaborations
+```
+
+This is opt-in because an ampersand can also be part of a single creator's
+name. No source-library files or symbolic links are created.
+
 Exclude any creator, project, nested directory, or file with repeatable
 [Gitignore-style patterns](https://git-scm.com/docs/gitignore):
 
@@ -137,8 +147,11 @@ depends on the codecs installed in that browser.
   40 creators or 120 projects per page. Search and initial filters operate over
   the complete catalog. In All projects view, search matches both project and
   creator names; creators without projects remain visible in By creator view.
+  With collaboration linking enabled, By creator includes shared projects under
+  each matching member; All projects still lists and counts each project once.
 - Every creator has a dedicated page with its portrait, exact `README.md`, a
-  project row, and allowed creator media.
+  project row, and allowed creator media. With collaboration linking enabled,
+  its Projects row and project count include shared projects too.
 - Every project has a dedicated page with its cover, exact `README.md`, and
   recursively discovered media.
 - Short READMEs remain fully visible. Longer ones start as a roughly 350px
@@ -216,6 +229,30 @@ Only `Creator/README.md` is rendered for a creator. A `README.md` inside `meta`
 is not rendered. Unsupported files such as JSON, TXT, archives, and executables
 are ignored wherever they occur.
 
+## Collaboration links
+
+With `--link-collaborations`, a creator folder is interpreted as a
+collaboration only when its name contains the literal separator ` & `, has two
+or more distinct nonempty parts, and at least one part exactly matches another
+included creator folder. Matching is case-sensitive. For example,
+`Dietrich Fischer-Dieskau & Jörg Demus` can link to
+`Dietrich Fischer-Dieskau` even when `Jörg Demus` has no separate folder.
+Missing members remain visible as plain-text chips. Excluded creators are not
+linked.
+
+The collaboration creator and its project pages show member chips below the
+title, with small portraits or initial placeholders. Each existing member's
+creator page shows solo and collaboration projects together in one Projects
+row. The creator grid shows the combined count, and By creator shows the
+combined list. Shared cards show the collaboration credit beneath the title.
+A shared project can appear under several creators in By creator, but All projects
+lists and counts it only once. Its detail page remains under its real
+collaboration creator; no duplicate page or source file is created.
+
+Relationships are rebuilt from folder names into the SQLite database in the
+output directory on every run. Turning the option off removes the generated
+cross-links on the next build. The input collection is never modified.
+
 ## Markdown
 
 Only the exact, case-sensitive name `README.md` is recognized directly inside
@@ -229,7 +266,9 @@ other relative links are disabled.
 Generation is streamed one project at a time. Creator and project summaries,
 preview metadata, and generated-file ownership are stored in SQLite instead of
 being retained in a large in-memory manifest. This keeps generator memory tied
-mainly to the largest individual project rather than to the entire collection.
+mainly to the largest individual project and the projects needed for one page,
+rather than to the entire collection. With collaboration linking enabled,
+member pages query related projects from SQLite after scanning is complete.
 
 Overview pagination and virtualized horizontal rows bound the number of cards
 in the browser DOM. This includes creator-level pagination in the catalog.

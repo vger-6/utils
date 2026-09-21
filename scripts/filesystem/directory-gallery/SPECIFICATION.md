@@ -14,6 +14,22 @@ Status: implemented for version 0.8.0
 - Creator and project display names are their directory names.
 - The source hierarchy is never modified.
 
+## Optional collaborations
+
+- `--link-collaborations` is off by default.
+- When enabled, a creator name is split only on the literal ` & ` separator.
+  At least two distinct nonempty parts and one exact, case-sensitive match to
+  another included creator folder are required.
+- Each part is displayed in its original order. A matching member links to its
+  creator page; an absent or excluded member remains plain text. No aliases,
+  other separators, nested-name inference, or source symlinks are created.
+- Relationships are indexed in the output SQLite database for the current run.
+  A rebuild updates or removes stale relationships, including when the option
+  is turned off or an input creator is excluded.
+- A collaboration retains its own creator page and owns its project pages.
+  Member pages link to those pages without duplicating project detail pages or
+  source files. All projects and global counts deduplicate by project page.
+
 ## Reserved creator content
 
 - `CREATOR/meta` is never a project and never appears in the catalog project grid.
@@ -112,7 +128,8 @@ Status: implemented for version 0.8.0
 - The creator grid paginates 120 cards at a time. The catalog paginates 40
   creators or 120 projects at a time and renders only the active view.
   Horizontal rows are initialized only for creators on the current page.
-- Creator cards contain portrait, name, and project count.
+- Creator cards contain portrait, name, and the count of own plus linked
+  collaboration projects when linking is enabled.
 - In the creator grid, portrait frames use a 2:3 ratio and crop toward the
   upper part of the image. Catalog badges stay circular; creator detail
   portrait shapes are unchanged.
@@ -120,6 +137,16 @@ Status: implemented for version 0.8.0
 - Creator detail pages contain portrait, name, README, projects, and creator
   media. Projects are always the first content row when present.
 - Project detail pages contain cover, title, creator, README, and project media.
+- When collaboration linking is enabled, collaboration creator and project
+  detail headers show ordered member chips below the title. Existing members
+  have linked portrait/initial chips; missing members have unlinked chips.
+- A member creator page has one Projects row containing own and linked
+  collaboration projects in alphabetical order. Shared cards show the original
+  project title, cover, and collaboration credit beneath the title.
+- By creator catalog sections show the same combined projects and per-creator
+  count. A shared project may appear under multiple sections, but All projects
+  has one card per project page, and the catalog's project summary counts
+  unique pages. Search in All projects matches any linked member name.
 - Content rows scroll horizontally, expose left/right controls only when they
   overflow, and retain native touch and trackpad scrolling.
 - Content rows virtualize their cards and retain only a small viewport-adjacent
@@ -166,6 +193,8 @@ Status: implemented for version 0.8.0
   is read automatically.
 - `--title TEXT` overrides the catalog title.
 - `--no-creator-grid` omits the separate `creators.html` portrait grid.
+- `--link-collaborations` enables inferred cross-links for creator names using
+  the literal ` & ` separator.
 - `--quiet` suppresses progress reports.
 - `--version` reports the program version.
 - Argument syntax errors exit with status 2, user/filesystem errors with status
@@ -191,6 +220,9 @@ Status: implemented for version 0.8.0
   project's media and one creator's project summaries are retained in memory.
 - Creator/project overview records, preview records, and generated-file
   ownership are stored in SQLite and selected in deterministic order.
+- Optional collaboration relationships are indexed in SQLite; member pages
+  query only their own collaboration projects. Their creator-level media is
+  rescanned when rendering is deferred, instead of retaining it all in memory.
 - Overview metadata is materialized only while its corresponding overview page
   is rendered. At expected scales of roughly 1,000 creators and 10,000
   projects, this remains modest compared with media metadata.

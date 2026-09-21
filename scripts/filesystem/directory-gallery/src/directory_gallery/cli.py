@@ -69,6 +69,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="omit the additional creators.html portrait grid",
     )
     parser.add_argument(
+        "--link-collaborations",
+        action="store_true",
+        help="link creator folders named like 'Artist A & Artist B' to their members",
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
         help="suppress progress reports while generating",
@@ -89,6 +94,7 @@ def run(arguments: argparse.Namespace) -> int:
         arguments.title or default_title,
         exclusions,
         creator_grid=arguments.creator_grid,
+        link_collaborations=arguments.link_collaborations,
         quiet=arguments.quiet,
     )
 

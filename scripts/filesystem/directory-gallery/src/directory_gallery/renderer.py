@@ -6,6 +6,7 @@ import hashlib
 import html
 import json
 import os
+import sqlite3
 import sys
 import time
 from dataclasses import dataclass
@@ -15,11 +16,18 @@ from string import Template
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 from urllib.parse import quote
 
+from .collaborations import collaboration_members
 from .models import CatalogWarning, Creator, MediaGroup, MediaItem, Project
 from .output import write_text_atomic
 from .patterns import ExclusionRules
 from .readme import render_readme
-from .scanner import creator_paths, project_paths, scan_creator, scan_project
+from .scanner import (
+    creator_paths,
+    creator_portrait_candidate,
+    project_paths,
+    scan_creator,
+    scan_project,
+)
 from .state import CatalogState
 from .thumbnails import ThumbnailCache
 
@@ -53,6 +61,14 @@ class ProjectSummary:
     path: Path
     page: Path
     cover: Optional[str]
+    credit: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class MemberSummary:
+    name: str
+    page: Optional[Path]
+    portrait: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -301,6 +317,7 @@ def _detail_header(
     artwork: str,
     artwork_kind: str,
     breadcrumb: str,
+    after_summary: str = "",
 ) -> str:
     return f"""
 <header class="page-header detail-header">
@@ -311,9 +328,37 @@ def _detail_header(
       <p class="eyebrow">{html.escape(eyebrow)}</p>
       <h1>{html.escape(title)}</h1>
       <p class="summary">{html.escape(subtitle)}</p>
+      {after_summary}
     </div>
   </div>
 </header>""".strip()
+
+
+def _member_markup(
+    members: Sequence[MemberSummary], output: Path, page: Path
+) -> str:
+    if not members:
+        return ""
+    chips = []
+    for member in members:
+        artwork = _artwork(
+            member.portrait, "portrait", member.name, "", output, page
+        )
+        content = (
+            f'<span class="member-avatar">{artwork}</span>'
+            f'<span class="member-name">{html.escape(member.name)}</span>'
+        )
+        if member.page is None:
+            chips.append(f'<span class="member-chip is-unlinked">{content}</span>')
+        else:
+            href = html.escape(_href(member.page, page), quote=True)
+            chips.append(f'<a class="member-chip" href="{href}">{content}</a>')
+    return (
+        '<section class="collaboration-members" aria-label="Collaboration members">'
+        '<h2>Members</h2><div class="member-chips">'
+        + "".join(chips)
+        + "</div></section>"
+    )
 
 
 def _alphabet_markup(initials: Iterable[str]) -> str:
@@ -343,9 +388,14 @@ def _creator_grid_content(items: List[Dict[str, object]]) -> str:
     )
 
 
-def _rail(title: str, items: List[Dict[str, object]], kind: str) -> str:
+def _rail(
+    title: str, items: List[Dict[str, object]], kind: str, extra_class: str = ""
+) -> str:
+    classes = f"content-row {kind}-row"
+    if extra_class:
+        classes += f" {extra_class}"
     return f"""
-<section class="content-row {html.escape(kind, quote=True)}-row" data-content-kind="{html.escape(kind, quote=True)}">
+<section class="{html.escape(classes, quote=True)}" data-content-kind="{html.escape(kind, quote=True)}">
   <div class="row-heading">
     <h2>{html.escape(title)}</h2>
     <div class="row-actions">
@@ -371,6 +421,7 @@ def _project_row_items(
                 (character.upper() for character in project.name if character.isalnum()),
                 "?",
             ),
+            **({"meta": project.credit} if project.credit else {}),
         }
         for project in projects
     ]
@@ -493,6 +544,7 @@ def _render_project(
     cover: Optional[str],
     previews: Mapping[Path, Optional[str]],
     warnings: List[CatalogWarning],
+    members: Sequence[MemberSummary],
     creator_grid: bool,
     exclusions: ExclusionRules,
 ) -> str:
@@ -505,7 +557,8 @@ def _render_project(
         f'<span aria-hidden="true">/</span><span>{html.escape(project.name)}</span>'
     )
     header = _detail_header(
-        "Project", project.name, creator.name, artwork, "cover", breadcrumb
+        "Project", project.name, creator.name, artwork, "cover", breadcrumb,
+        _member_markup(members, output, page),
     )
     readme = render_readme(project.readme, project.path, page, warnings, exclusions)
     rows = _media_rows(project.media, page, output, previews)
@@ -526,6 +579,7 @@ def _render_project(
 def _render_creator(
     creator: Creator,
     projects: Sequence[ProjectSummary],
+    members: Sequence[MemberSummary],
     page: Path,
     output: Path,
     title: str,
@@ -555,12 +609,18 @@ def _render_creator(
         artwork,
         "portrait",
         breadcrumb,
+        _member_markup(members, output, page),
     )
     readme = render_readme(creator.readme, creator.path, page, warnings, exclusions)
     rows = []
     if projects:
         rows.append(
-            _rail("Projects", _project_row_items(projects, output, page), "project")
+            _rail(
+                "Projects",
+                _project_row_items(projects, output, page),
+                "project",
+                "collaboration-row" if any(project.credit for project in projects) else "",
+            )
         )
     rows.append(_media_rows(creator.media, page, output, previews))
     row_markup = "\n".join(row for row in rows if row)
@@ -578,13 +638,74 @@ def _render_creator(
     )
 
 
+def _member_summaries(
+    state: CatalogState, creator_path: Path, output: Path
+) -> List[MemberSummary]:
+    return [
+        MemberSummary(
+            name=str(row["member_name"]),
+            page=output / str(row["page"]) if row["page"] else None,
+            portrait=str(row["portrait"]) if row["portrait"] else None,
+        )
+        for row in state.members_for_collaboration(creator_path)
+    ]
+
+
+def _project_summaries(
+    rows: Iterable[sqlite3.Row], output: Path, *, credit: bool = False
+) -> List[ProjectSummary]:
+    return [
+        ProjectSummary(
+            name=str(row["name"]),
+            path=Path(str(row["source_path"])),
+            page=output / str(row["page"]),
+            cover=str(row["cover"]) if row["cover"] else None,
+            credit=str(row["collaboration_name"]) if credit else None,
+        )
+        for row in rows
+    ]
+
+
+def _creator_projects(
+    state: CatalogState,
+    creator_path: Path,
+    output: Path,
+    include_collaborations: bool,
+) -> List[ProjectSummary]:
+    projects = _project_summaries(
+        state.projects_for_creator(os.fspath(creator_path.resolve())), output
+    )
+    if include_collaborations:
+        projects.extend(
+            _project_summaries(
+                state.collaboration_projects_for_member(creator_path),
+                output,
+                credit=True,
+            )
+        )
+    projects.sort(
+        key=lambda project: (
+            project.name.casefold(),
+            project.name,
+            (project.credit or "").casefold(),
+            project.credit or "",
+        )
+    )
+    return projects
+
+
 def _creator_grid_items(
-    state: CatalogState, output: Path, page: Path
+    state: CatalogState, output: Path, page: Path, include_collaborations: bool
 ) -> List[Dict[str, object]]:
     items = []
     for row in state.creators():
         name = str(row["name"])
         portrait = row["portrait"]
+        project_count = int(row["project_count"])
+        if include_collaborations:
+            project_count += state.collaboration_project_count_for_member(
+                Path(str(row["source_path"]))
+            )
         items.append(
             {
                 "title": name,
@@ -596,33 +717,41 @@ def _creator_grid_items(
                     (character.upper() for character in name if character.isalnum()),
                     "?",
                 ),
-                "meta": _count_label(int(row["project_count"]), "project"),
+                "meta": _count_label(project_count, "project"),
             }
         )
     return items
 
 
 def _catalog_items(
-    state: CatalogState, output: Path, page: Path
+    state: CatalogState, output: Path, page: Path, include_collaborations: bool
 ) -> List[Dict[str, object]]:
     items: List[Dict[str, object]] = []
     for creator_row in state.creators():
         creator_name = str(creator_row["name"])
         portrait = creator_row["portrait"]
         projects = []
-        for project_row in state.projects_for_creator(str(creator_row["source_path"])):
-            project_name = str(project_row["name"])
-            cover = project_row["cover"]
+        for project in _creator_projects(
+            state,
+            Path(str(creator_row["source_path"])),
+            output,
+            include_collaborations,
+        ):
+            project_name = project.name
+            credit = project.credit or creator_name
             projects.append(
                 {
                     "kind": "project",
                     "title": project_name,
-                    "search": project_name.casefold(),
+                    "search": f"{project_name} {credit}".casefold(),
                     "initial": _initial(project_name),
-                    "href": _href(output / str(project_row["page"]), page),
+                    "href": _href(project.page, page),
                     "image": (
-                        _asset_href(str(cover), output, page) if cover else None
+                        _asset_href(project.cover, output, page)
+                        if project.cover else None
                     ),
+                    "credit": credit,
+                    **({"meta": credit} if project.credit else {}),
                     "placeholder": next(
                         (
                             character.upper()
@@ -688,6 +817,7 @@ def build_site(
     title: str,
     exclusions: ExclusionRules,
     creator_grid: bool = True,
+    link_collaborations: bool = False,
     quiet: bool = False,
 ) -> BuildResult:
     warnings = WarningLog()
@@ -700,17 +830,52 @@ def build_site(
     with CatalogState(output, input_root, warnings) as state:
         cache = ThumbnailCache(output, warnings, state, progress=progress.update)
         progress.attach_cache(cache)
+        portrait_index: Dict[Path, Optional[str]] = {}
+        member_paths = set()
+        deferred_creators = []
+
+        if link_collaborations:
+            # Index only direct creator artwork before rendering project pages,
+            # so member links can already use cached portraits and page paths.
+            for creator_path in creators:
+                candidate = creator_portrait_candidate(creator_path, exclusions)
+                portrait = cache.thumbnail_for(candidate) if candidate else None
+                portrait_index[creator_path] = portrait
+                state.record_creator(
+                    creator_path,
+                    creator_path.name,
+                    _creator_page(output, creator_path).relative_to(output).as_posix(),
+                    portrait,
+                    0,
+                )
+
+            creators_by_name = {path.name: path for path in creators}
+            for creator_path in creators:
+                members = collaboration_members(creator_path.name, creators_by_name)
+                for position, (member_name, member_path) in enumerate(members):
+                    state.record_collaboration_member(
+                        creator_path, position, member_name, member_path
+                    )
+                    if member_path is not None:
+                        member_paths.add(member_path)
 
         for creator_path in creators:
             creator = scan_creator(creator_path, warnings, exclusions)
             creator_page = _creator_page(output, creator_path)
-            portrait = (
+            portrait = portrait_index[creator_path] if link_collaborations else (
                 cache.thumbnail_for(creator.portrait) if creator.portrait else None
             )
+            members = (
+                _member_summaries(state, creator_path, output)
+                if link_collaborations else []
+            )
+            defer_creator = creator_path in member_paths
             creator_media_count = _media_count(creator.media)
             media_count += creator_media_count
             progress.media = media_count
-            creator_previews = _prepare_media_previews(creator.media, cache)
+            creator_previews = (
+                {} if defer_creator else _prepare_media_previews(creator.media, cache)
+            )
             summaries: List[ProjectSummary] = []
 
             for project_path in project_paths(creator_path, exclusions):
@@ -732,6 +897,7 @@ def build_site(
                     cover,
                     previews,
                     warnings,
+                    members,
                     creator_grid,
                     exclusions,
                 )
@@ -748,19 +914,23 @@ def build_site(
                 summaries.append(ProjectSummary(project.name, project.path, page, cover))
                 progress.update()
 
-            creator_document = _render_creator(
-                creator,
-                summaries,
-                creator_page,
-                output,
-                title,
-                portrait,
-                creator_previews,
-                warnings,
-                creator_grid,
-                exclusions,
-            )
-            _write_generated(state, output, creator_page, creator_document)
+            if defer_creator:
+                deferred_creators.append(creator_path)
+            else:
+                creator_document = _render_creator(
+                    creator,
+                    summaries,
+                    members,
+                    creator_page,
+                    output,
+                    title,
+                    portrait,
+                    creator_previews,
+                    warnings,
+                    creator_grid,
+                    exclusions,
+                )
+                _write_generated(state, output, creator_page, creator_document)
             state.record_creator(
                 creator.path,
                 creator.name,
@@ -771,6 +941,24 @@ def build_site(
             progress.creators += 1
             progress.update()
 
+        for creator_path in deferred_creators:
+            creator = scan_creator(creator_path, [], exclusions)
+            creator_page = _creator_page(output, creator_path)
+            creator_document = _render_creator(
+                creator,
+                _creator_projects(state, creator_path, output, True),
+                _member_summaries(state, creator_path, output),
+                creator_page,
+                output,
+                title,
+                portrait_index[creator_path],
+                _prepare_media_previews(creator.media, cache),
+                warnings,
+                creator_grid,
+                exclusions,
+            )
+            _write_generated(state, output, creator_page, creator_document)
+
         creator_count = len(creators)
         catalog_summary = (
             f'<span id="visible-items">{project_count}</span> '
@@ -780,7 +968,7 @@ def build_site(
             f'<span id="visible-project-label">{"project" if project_count == 1 else "projects"}</span>'
             '</span>'
         )
-        catalog_items = _catalog_items(state, output, index)
+        catalog_items = _catalog_items(state, output, index, link_collaborations)
         index_content = _catalog_content(
             catalog_items, "No matching projects."
         )
@@ -806,7 +994,9 @@ def build_site(
 
         if creator_grid:
             creators_page = output / "creators.html"
-            creator_items = _creator_grid_items(state, output, creators_page)
+            creator_items = _creator_grid_items(
+                state, output, creators_page, link_collaborations
+            )
             creators_summary = (
                 f'<span id="visible-items">{creator_count}</span> '
                 f'<span id="visible-label">'

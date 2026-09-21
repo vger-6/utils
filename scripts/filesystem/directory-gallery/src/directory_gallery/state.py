@@ -106,6 +106,14 @@ class CatalogState:
                 cover TEXT,
                 last_seen INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS collaboration_members (
+                collaboration_path TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                member_name TEXT NOT NULL,
+                member_path TEXT,
+                last_seen INTEGER NOT NULL,
+                PRIMARY KEY (collaboration_path, position)
+            );
             CREATE INDEX IF NOT EXISTS creators_seen_name
                 ON creators(last_seen, name COLLATE NOCASE, name);
             CREATE INDEX IF NOT EXISTS projects_seen_name
@@ -117,6 +125,8 @@ class CatalogState:
                     name COLLATE NOCASE,
                     name
                 );
+            CREATE INDEX IF NOT EXISTS collaboration_members_member_seen
+                ON collaboration_members(member_path, last_seen, collaboration_path);
             """
         )
         stored = self.connection.execute(
@@ -247,6 +257,33 @@ class CatalogState:
         )
         self._touch()
 
+    def record_collaboration_member(
+        self,
+        collaboration_path: Path,
+        position: int,
+        member_name: str,
+        member_path: Optional[Path],
+    ) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO collaboration_members
+                (collaboration_path, position, member_name, member_path, last_seen)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(collaboration_path, position) DO UPDATE SET
+                member_name = excluded.member_name,
+                member_path = excluded.member_path,
+                last_seen = excluded.last_seen
+            """,
+            (
+                os.fspath(collaboration_path.resolve()),
+                position,
+                member_name,
+                os.fspath(member_path.resolve()) if member_path else None,
+                self.run_id,
+            ),
+        )
+        self._touch()
+
     def creators(self) -> Iterator[sqlite3.Row]:
         cursor = self.connection.execute(
             """
@@ -269,6 +306,65 @@ class CatalogState:
             (self.run_id, creator_path),
         )
         yield from cursor
+
+    def members_for_collaboration(self, creator_path: Path) -> Iterator[sqlite3.Row]:
+        cursor = self.connection.execute(
+            """
+            SELECT cm.member_name, member.page, member.portrait
+            FROM collaboration_members AS cm
+            LEFT JOIN creators AS member
+                ON member.source_path = cm.member_path AND member.last_seen = ?
+            WHERE cm.collaboration_path = ? AND cm.last_seen = ?
+            ORDER BY cm.position
+            """,
+            (self.run_id, os.fspath(creator_path.resolve()), self.run_id),
+        )
+        yield from cursor
+
+    def collaboration_projects_for_member(
+        self, creator_path: Path
+    ) -> Iterator[sqlite3.Row]:
+        cursor = self.connection.execute(
+            """
+            SELECT project.source_path, project.name, project.page, project.cover,
+                   collaboration.name AS collaboration_name
+            FROM collaboration_members AS cm
+            JOIN creators AS collaboration
+                ON collaboration.source_path = cm.collaboration_path
+                AND collaboration.last_seen = ?
+            JOIN projects AS project
+                ON project.creator_path = cm.collaboration_path
+                AND project.last_seen = ?
+            WHERE cm.member_path = ? AND cm.last_seen = ?
+            ORDER BY project.name COLLATE NOCASE, project.name,
+                     collaboration.name COLLATE NOCASE, collaboration.name
+            """,
+            (
+                self.run_id,
+                self.run_id,
+                os.fspath(creator_path.resolve()),
+                self.run_id,
+            ),
+        )
+        yield from cursor
+
+    def collaboration_project_count_for_member(self, creator_path: Path) -> int:
+        row = self.connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM collaboration_members AS cm
+            JOIN projects AS project
+                ON project.creator_path = cm.collaboration_path
+                AND project.last_seen = ?
+            WHERE cm.member_path = ? AND cm.last_seen = ?
+            """,
+            (
+                self.run_id,
+                os.fspath(creator_path.resolve()),
+                self.run_id,
+            ),
+        ).fetchone()
+        return int(row[0])
 
     def _remove_stale_previews(self) -> None:
         while True:
@@ -360,6 +456,9 @@ class CatalogState:
         )
         self.connection.execute(
             "DELETE FROM projects WHERE last_seen != ?", (self.run_id,)
+        )
+        self.connection.execute(
+            "DELETE FROM collaboration_members WHERE last_seen != ?", (self.run_id,)
         )
         self.connection.commit()
         self._write_manifest()
