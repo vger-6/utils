@@ -142,6 +142,10 @@ depends on the codecs installed in that browser.
   trackpads, or native horizontal scrolling.
 - Horizontal rows render only cards near the visible viewport. Lightbox
   previous/next navigation still covers every item in the row.
+- Labels beneath project and media cards in horizontal rows show up to three
+  lines. Truncated labels reveal the full name on mouse hover or keyboard focus;
+  opening a card shows its full title on the project page or in the lightbox.
+  Overview and detail-page titles are never truncated.
 - Rows are ordered by media type: images, PDFs, videos, then audio. Root content
   precedes alphabetically ordered subdirectory rows within each type.
 - Clicking an image, PDF, video, or audio item opens the shared lightbox. Audio
@@ -149,6 +153,7 @@ depends on the codecs installed in that browser.
 - The lightbox keeps the same outer size across media types, including when an
   audio playlist is shown. Image navigation keeps the current image visible
   until the next original is decoded, and preloads its immediate neighbors.
+  The lightbox title wraps to show the complete filename.
 
 No generic filesystem listing is generated. Unsupported files never appear.
 

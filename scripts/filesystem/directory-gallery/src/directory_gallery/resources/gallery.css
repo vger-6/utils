@@ -628,9 +628,12 @@ input::placeholder {
 .rail-track {
   --rail-card-width: 180;
   --rail-gap: 16;
+  --rail-art-height: 180px;
+  --rail-card-gap: 10px;
   position: relative;
-  height: 248px;
+  height: calc(var(--rail-art-height) + var(--rail-card-gap) + 3.73rem + 20px);
   overflow-x: auto;
+  overflow-y: hidden;
   overscroll-behavior-inline: contain;
   padding: 3px 3px 14px;
   scroll-behavior: smooth;
@@ -642,11 +645,16 @@ input::placeholder {
 .project-row .rail-track,
 .pdf-row .rail-track,
 .video-row .rail-track {
-  height: 288px;
+  --rail-art-height: 220px;
 }
 
 .audio-row .rail-track {
-  height: 184px;
+  --rail-art-height: 116px;
+}
+
+.project-row .rail-track {
+  --rail-art-height: 225px;
+  --rail-card-gap: 11px;
 }
 
 .rail-canvas {
@@ -696,11 +704,33 @@ input::placeholder {
   height: 116px;
 }
 
+.project-card .overview-title,
 .media-title {
   overflow: hidden;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
+  overflow-wrap: anywhere;
+}
+
+.rail-tooltip {
+  position: fixed;
+  z-index: 20;
+  max-width: min(360px, calc(100vw - 24px));
+  padding: 9px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.rail-tooltip[hidden] {
+  display: none;
 }
 
 .warnings {
@@ -786,10 +816,8 @@ input::placeholder {
 .lightbox-header h2 {
   min-width: 0;
   margin: 0;
-  overflow: hidden;
   font-size: 0.95rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
 }
 
 .lightbox-actions {
@@ -961,17 +989,20 @@ input::placeholder {
 
   .rail-track {
     --rail-card-width: 145;
-    height: 214px;
+    --rail-art-height: 145px;
   }
 
-  .project-row .rail-track,
   .pdf-row .rail-track,
   .video-row .rail-track {
-    height: 250px;
+    --rail-art-height: 180px;
   }
 
   .audio-row .rail-track {
-    height: 166px;
+    --rail-art-height: 100px;
+  }
+
+  .project-row .rail-track {
+    --rail-art-height: 181.25px;
   }
 
   .project-card,

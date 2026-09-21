@@ -350,6 +350,67 @@
     trigger = null;
   };
 
+  let railTooltip;
+  let tooltipTrigger;
+
+  const hideRailTooltip = () => {
+    if (railTooltip) railTooltip.hidden = true;
+    tooltipTrigger = null;
+  };
+
+  const showRailTooltip = (card, title) => {
+    if (title.scrollHeight <= title.clientHeight + 1) return;
+    if (!railTooltip) {
+      railTooltip = document.createElement("div");
+      railTooltip.className = "rail-tooltip";
+      railTooltip.hidden = true;
+      railTooltip.setAttribute("aria-hidden", "true");
+      document.body.append(railTooltip);
+    }
+    railTooltip.textContent = title.textContent;
+    railTooltip.hidden = false;
+    tooltipTrigger = card;
+
+    const cardBounds = card.getBoundingClientRect();
+    const left = Math.min(
+      Math.max(12, cardBounds.left),
+      window.innerWidth - railTooltip.offsetWidth - 12,
+    );
+    let top = cardBounds.bottom + 8;
+    if (top + railTooltip.offsetHeight > window.innerHeight - 12) {
+      top = Math.max(12, cardBounds.top - railTooltip.offsetHeight - 8);
+    }
+    railTooltip.style.left = `${left}px`;
+    railTooltip.style.top = `${top}px`;
+  };
+
+  const attachRailTooltip = (card, title) => {
+    card.addEventListener("pointerenter", (event) => {
+      if (event.pointerType !== "touch") showRailTooltip(card, title);
+    });
+    card.addEventListener("pointerleave", () => {
+      if (tooltipTrigger === card && !card.matches(":focus-visible")) {
+        hideRailTooltip();
+      }
+    });
+    card.addEventListener("focus", () => {
+      if (card.matches(":focus-visible")) showRailTooltip(card, title);
+    });
+    card.addEventListener("blur", () => {
+      if (tooltipTrigger === card && !card.matches(":hover")) hideRailTooltip();
+    });
+  };
+
+  window.addEventListener("scroll", () => {
+    if (tooltipTrigger?.isConnected && tooltipTrigger.matches(":focus-visible")) {
+      const title = tooltipTrigger.querySelector(".overview-title, .media-title");
+      if (title) showRailTooltip(tooltipTrigger, title);
+    } else {
+      hideRailTooltip();
+    }
+  }, true);
+  window.addEventListener("resize", hideRailTooltip);
+
   const createRailCard = (item, items, index) => {
     if (item.kind === "project") {
       const card = document.createElement("a");
@@ -363,6 +424,7 @@
       title.textContent = item.title;
       copy.append(title);
       card.append(copy);
+      attachRailTooltip(card, title);
       return card;
     }
 
@@ -374,7 +436,11 @@
     title.className = "media-title";
     title.textContent = item.title;
     card.append(title);
-    card.addEventListener("click", () => openLightbox(items, index, card));
+    attachRailTooltip(card, title);
+    card.addEventListener("click", () => {
+      hideRailTooltip();
+      openLightbox(items, index, card);
+    });
     return card;
   };
 

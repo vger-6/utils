@@ -120,9 +120,14 @@ Status: implemented for version 0.8.0
 - Content rows virtualize their cards and retain only a small viewport-adjacent
   window in the DOM. The complete row metadata remains available for scrolling
   and lightbox navigation.
+- Project and media card labels in horizontal rows clamp to three lines without
+  vertical scrolling. Truncated names have a full-text tooltip on pointer hover
+  and keyboard focus. Touch users can open the card to see the full title.
+  Other page titles remain unclamped.
 - Images, PDFs, videos, and audio open in a shared accessible lightbox.
 - The lightbox has a stable responsive outer size for all media types. Audio
   playlists occupy space inside the viewer rather than resizing the dialog.
+  Lightbox titles wrap in full, reducing media space when needed.
 - Image navigation stays within the selected row and loads the original file.
   The currently displayed image remains visible until the next one is decoded;
   immediate neighbors are preloaded with a bounded in-memory cache.
