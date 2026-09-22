@@ -9,8 +9,7 @@ its detailed documentation close to its scripts.
 ```text
 scripts/
 ├── filesystem/
-│   ├── create-link-collection/    Relative-link collection generator
-│   └── directory-gallery/         Static directory gallery generator
+│   └── create-link-collection/    Relative-link collection generator
 └── system/                         System administration utilities
 ```
 
@@ -19,7 +18,6 @@ scripts/
 | Utility | Purpose | Platforms |
 | --- | --- | --- |
 | [`create-link-collection.py`](scripts/filesystem/create-link-collection/README.md) | Build a flat collection of relative links from a `GROUP/ITEM` hierarchy | Linux, Windows |
-| [`directory-gallery`](scripts/filesystem/directory-gallery/README.md) | Build a dark, multi-page media catalog from a `CREATOR/PROJECT` hierarchy | Linux, Windows |
 | [`update-apt.sh`](scripts/system/README.md) | Update packages on a Debian-based system | Linux |
 
 ## Conventions
